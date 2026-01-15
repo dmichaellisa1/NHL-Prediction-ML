@@ -1,0 +1,485 @@
+
+```{r}
+library(dplyr)
+library(lubridate)
+library(stringr)
+library(janitor)
+library(caret)
+```
+
+```{r}
+load("Prediction_Data.RData")
+```
+
+
+```{r}
+#subtract home vs away to get a combined informative stat
+TotalPredictionData_Final_v2 <- TotalPredictionData_Final %>% mutate(
+  fo_avg_diff = home_fo_avg - away_fo_avg
+  ,fow_avg_diff = home_fow_avg - away_fow_avg
+  ,fol_avg_diff = home_fol_avg - away_fol_avg
+  ,`fow%_diff` = `home_fow%` - `away_fow%`
+  ,ev_fo_avg_diff = home_ev_fo_avg - away_ev_fo_avg
+  ,ev_fow_avg_diff = home_ev_fow_avg - away_ev_fow_avg
+  ,ev_fol_avg_diff = home_ev_fol_avg - away_ev_fol_avg
+  ,`ev_fow%_diff` = `home_ev_fow%` - `away_ev_fow%`
+  ,pp_fo_avg_diff = home_pp_fo_avg - away_pp_fo_avg
+  ,pp_fow_avg_diff = home_pp_fow_avg - away_pp_fow_avg
+  ,pp_fol_avg_diff = home_pp_fol_avg - away_pp_fol_avg
+  ,`pp_fow%_diff` = `home_pp_fow%` - `away_pp_fow%`
+  ,sh_fo_avg_diff = home_sh_fo_avg - away_sh_fo_avg
+  ,sh_fow_avg_diff = home_sh_fow_avg - away_sh_fow_avg
+  ,sh_fol_avg_diff = home_sh_fol_avg - away_sh_fol_avg
+  ,`sh_fow%_diff` = `home_sh_fow%` - `away_sh_fow%`
+  ,oz_fo_avg_diff = home_oz_fo_avg - away_oz_fo_avg
+  ,oz_fow_avg_diff = home_oz_fow_avg - away_oz_fow_avg
+  ,oz_fol_avg_diff = home_oz_fol_avg - away_oz_fol_avg
+  ,`oz_fow%_diff` = `home_oz_fow%` - `away_oz_fow%`
+  ,nz_fo_avg_diff = home_nz_fo_avg - away_nz_fo_avg
+  ,nz_fow_avg_diff = home_nz_fow_avg - away_nz_fow_avg
+  ,nz_fol_avg_diff = home_nz_fol_avg - away_nz_fol_avg
+  ,`nz_fow%_diff` = `home_nz_fow%` - `away_nz_fow%`
+  ,dz_fo_avg_diff = home_dz_fo_avg - away_dz_fo_avg
+  ,dz_fow_avg_diff = home_dz_fow_avg - away_dz_fow_avg
+  ,dz_fol_avg_diff = home_dz_fol_avg - away_dz_fol_avg
+  ,`dz_fow%_diff` = `home_dz_fow%` - `away_dz_fow%`
+  ,shots_avg_diff = home_shots_avg - away_shots_avg
+  ,shots_against_avg_diff = home_shots_against_avg - away_shots_against_avg
+  ,sat_for_avg_diff = home_sat_for_avg - away_sat_for_avg
+  ,sat_against_avg_diff = home_sat_against_avg - away_sat_against_avg
+  ,sat_avg_diff = home_sat_avg - away_sat_avg
+  ,sat_total_diff = home_sat_total - away_sat_total
+  ,sat_tied_avg_diff = home_sat_tied_avg - away_sat_tied_avg
+  ,sat_tied_total_diff = home_sat_tied_total - away_sat_tied_total
+  ,sat_ahead_avg_diff = home_sat_ahead_avg - away_sat_ahead_avg
+  ,sat_ahead_total_diff = home_sat_ahead_total - away_sat_ahead_total
+  ,sat_behind_avg_diff = home_sat_behind_avg - away_sat_behind_avg
+  ,sat_behind_total_diff = home_sat_behind_total - away_sat_behind_total
+  ,sat_close_avg_diff = home_sat_close_avg - away_sat_close_avg
+  ,sat_close_total_diff = home_sat_close_total - away_sat_close_total
+  ,usat_for_avg_diff = home_usat_for_avg - away_usat_for_avg
+  ,usat_against_avg_diff = home_usat_against_avg - away_usat_against_avg
+  ,usat_avg_diff = home_usat_avg - away_usat_avg
+  ,usat_total_diff = home_usat_total - away_usat_total
+  ,usat_tied_avg_diff = home_usat_tied_avg - away_usat_tied_avg
+  ,usat_tied_total_diff = home_usat_tied_total - away_usat_tied_total
+  ,usat_ahead_avg_diff = home_usat_ahead_avg - away_usat_ahead_avg
+  ,usat_ahead_total_diff = home_usat_ahead_total - away_usat_ahead_total
+  ,usat_behind_avg_diff = home_usat_behind_avg - away_usat_behind_avg
+  ,usat_behind_total_diff = home_usat_behind_total - away_usat_behind_total
+  ,usat_close_avg_diff = home_usat_close_avg - away_usat_close_avg
+  ,usat_close_total_diff = home_usat_close_total - away_usat_close_total
+  ,gf_avg_diff = home_gf_avg - away_gf_avg
+  ,ga_avg_diff = home_ga_avg - away_ga_avg
+  ,goal_diff_avg_diff = home_goal_diff_avg - away_goal_diff_avg
+  ,goal_diff_total_diff = home_goal_diff_total - away_goal_diff_total
+  ,ev_gf_avg_diff = home_ev_gf_avg - away_ev_gf_avg
+  ,ev_ga_avg_diff = home_ev_ga_avg - away_ev_ga_avg
+  ,ev_goal_diff_avg_diff = home_ev_goal_diff_avg - away_ev_goal_diff_avg
+  ,ev_goal_diff_total_diff = home_ev_goal_diff_total - away_ev_goal_diff_total
+  ,pp_gf_avg_diff = home_pp_gf_avg - away_pp_gf_avg
+  ,pp_ga_avg_diff = home_pp_ga_avg - away_pp_ga_avg
+  ,pp_goal_diff_avg_diff = home_pp_goal_diff_avg - away_pp_goal_diff_avg
+  ,pp_goal_diff_total_diff = home_pp_goal_diff_total - away_pp_goal_diff_total
+  ,sh_gf_avg_diff = home_sh_gf_avg - away_sh_gf_avg
+  ,sh_ga_avg_diff = home_sh_ga_avg - away_sh_ga_avg
+  ,sh_goal_diff_avg_diff = home_sh_goal_diff_avg - away_sh_goal_diff_avg
+  ,sh_goal_diff_total_diff = home_sh_goal_diff_total - away_sh_goal_diff_total
+  ,gf_in_p1_avg_diff = home_gf_in_p1_avg - away_gf_in_p1_avg
+  ,ga_in_p1_avg_diff = home_ga_in_p1_avg - away_ga_in_p1_avg
+  ,goal_in_p1_diff_avg_diff = home_goal_in_p1_diff_avg - away_goal_in_p1_diff_avg
+  ,goal_in_p1_diff_total_diff = home_goal_in_p1_diff_total - away_goal_in_p1_diff_total
+  ,gf_in_p2_avg_diff = home_gf_in_p2_avg - away_gf_in_p2_avg
+  ,ga_in_p2_avg_diff = home_ga_in_p2_avg - away_ga_in_p2_avg
+  ,goal_in_p2_diff_avg_diff = home_goal_in_p2_diff_avg - away_goal_in_p2_diff_avg
+  ,goal_in_p2_diff_total_diff = home_goal_in_p2_diff_total - away_goal_in_p2_diff_total
+  ,gf_in_p3_avg_diff = home_gf_in_p3_avg - away_gf_in_p3_avg
+  ,ga_in_p3_avg_diff = home_ga_in_p3_avg - away_ga_in_p3_avg
+  ,goal_in_p3_diff_avg_diff = home_goal_in_p3_diff_avg - away_goal_in_p3_diff_avg
+  ,goal_in_p3_diff_total_diff = home_goal_in_p3_diff_total - away_goal_in_p3_diff_total
+  ,gf_in_ot_avg_diff = home_gf_in_ot_avg - away_gf_in_ot_avg
+  ,ga_in_ot_avg_diff = home_ga_in_ot_avg - away_ga_in_ot_avg
+  ,goal_in_ot_diff_avg_diff = home_goal_in_ot_diff_avg - away_goal_in_ot_diff_avg
+  ,goal_in_ot_diff_total_diff = home_goal_in_ot_diff_total - away_goal_in_ot_diff_total
+  ,`5v5_TOI_avg_diff` = home_5v5_TOI_avg - away_5v5_TOI_avg
+  ,hits_for_avg_diff = home_hits_for_avg - away_hits_for_avg
+  ,hits_agst_avg_diff = home_hits_agst_avg - away_hits_agst_avg
+  ,hits_diff_avg_diff = home_hits_diff_avg - away_hits_diff_avg
+  ,hits_diff_total_diff = home_hits_diff_total - away_hits_diff_total
+  ,blks_for_avg_diff = home_blks_for_avg - away_blks_for_avg
+  ,blks_agst_avg_diff = home_blks_agst_avg - away_blks_agst_avg
+  ,blks_diff_avg_diff = home_blks_diff_avg - away_blks_diff_avg
+  ,blks_diff_total_diff = home_blks_diff_total - away_blks_diff_total
+  ,GvA_avg_diff = home_GvA_avg - away_GvA_avg
+  ,TkA_avg_diff = home_TkA_avg - away_TkA_avg
+  ,ENG_avg_diff = home_ENG_avg - away_ENG_avg
+  ,ENG_opp_avg_diff = home_ENG_opp_avg - away_ENG_opp_avg
+  ,MsS_avg_diff = home_MsS_avg - away_MsS_avg
+  ,PP_Opp_avg_diff = home_PP_Opp_avg - away_PP_Opp_avg
+  ,`PP%_diff` = `home_PP%` - `away_PP%`
+  ,PP_Opp_agnst_avg_diff = home_PP_Opp_agnst_avg - away_PP_Opp_agnst_avg
+  ,`PenaltyKill%_diff` = `home_PenatlyKill%` - `away_PenatlyKill%`
+  ,W_diff = home_W - away_W
+  ,L_diff = home_L - away_L
+  ,OT_diff = home_OT - away_OT
+  ,Pts_diff = home_Pts - away_Pts
+  ,`Pt%_diff` = `home_Pt%` - `away_Pt%`
+  ,SO_diff = home_SO - away_SO
+  ,OT_win_diff = home_OT_win - away_OT_win
+  ,days_since_last_game_diff = home_days_since_last_game - away_days_since_last_game
+  ,Winning_streak_diff = home_Winning_Streak - away_Winning_Streak
+  
+  #last5 stats
+  ,fo_avg_last5_diff = home_fo_avg_last5 - away_fo_avg_last5
+  ,fow_avg_last5diff = home_fow_avg_last5 - away_fow_avg_last5
+  ,fol_avg_last5_diff = home_fol_avg_last5 - away_fol_avg_last5
+  ,`fow%_last5_diff` = `home_fow%_last5` - `away_fow%_last5`
+  ,ev_fo_avg_last5_diff = home_ev_fo_avg_last5 - away_ev_fo_avg_last5
+  ,ev_fow_avg_last5_diff = home_ev_fow_avg_last5 - away_ev_fow_avg_last5
+  ,ev_fol_avg_last5_diff = home_ev_fol_avg_last5 - away_ev_fol_avg_last5
+  ,`ev_fow%_last5_diff` = `home_ev_fow%_last5` - `away_ev_fow%_last5`
+  ,pp_fo_avg_last5_diff = home_pp_fo_avg_last5 - away_pp_fo_avg_last5
+  ,pp_fow_avg_last5_diff = home_pp_fow_avg_last5 - away_pp_fow_avg_last5
+  ,pp_fol_avg_last5_diff = home_pp_fol_avg_last5 - away_pp_fol_avg_last5
+  ,`pp_fow%_last5_diff` = `home_pp_fow%_last5` - `away_pp_fow%_last5`
+  ,sh_fo_avg_last5_diff = home_sh_fo_avg_last5 - away_sh_fo_avg_last5
+  ,sh_fow_avg_last5_diff = home_sh_fow_avg_last5 - away_sh_fow_avg_last5
+  ,sh_fol_avg_last5_diff = home_sh_fol_avg_last5 - away_sh_fol_avg_last5
+  ,`sh_fow%_last5_diff` = `home_sh_fow%_last5` - `away_sh_fow%_last5`
+  ,oz_fo_avg_last5_diff = home_oz_fo_avg_last5 - away_oz_fo_avg_last5
+  ,oz_fow_avg_last5_diff = home_oz_fow_avg_last5 - away_oz_fow_avg_last5
+  ,oz_fol_avg_last5_diff = home_oz_fol_avg_last5 - away_oz_fol_avg_last5
+  ,`oz_fow%_last5_diff` = `home_oz_fow%_last5` - `away_oz_fow%_last5`
+  ,nz_fo_avg_last5_diff = home_nz_fo_avg_last5 - away_nz_fo_avg_last5
+  ,nz_fow_avg_last5_diff = home_nz_fow_avg_last5 - away_nz_fow_avg_last5
+  ,nz_fol_avg_last5_diff = home_nz_fol_avg_last5 - away_nz_fol_avg_last5
+  ,`nz_fow%_last5_diff` = `home_nz_fow%_last5` - `away_nz_fow%_last5`
+  ,dz_fo_avg_last5_diff = home_dz_fo_avg_last5 - away_dz_fo_avg_last5
+  ,dz_fow_avg_last5_diff = home_dz_fow_avg_last5 - away_dz_fow_avg_last5
+  ,dz_fol_avg_last5_diff = home_dz_fol_avg_last5 - away_dz_fol_avg_last5
+  ,`dz_fow%_last5_diff` = `home_dz_fow%_last5` - `away_dz_fow%_last5`
+  ,shots_avg_last5_diff = home_shots_avg_last5 - away_shots_avg_last5
+  ,shots_against_avg_last5_diff = home_shots_against_avg_last5 - away_shots_against_avg_last5
+  ,sat_for_avg_last5_diff = home_sat_for_avg_last5 - away_sat_for_avg_last5
+  ,sat_against_avg_last5_diff = home_sat_against_avg_last5 - away_sat_against_avg_last5
+  ,sat_avg_last5_diff = home_sat_avg_last5 - away_sat_avg_last5
+  ,sat_total_last5_diff = home_sat_total_last5 - away_sat_total_last5
+  ,sat_tied_avg_last5_diff = home_sat_tied_avg_last5 - away_sat_tied_avg_last5
+  ,sat_tied_total_last5_diff = home_sat_tied_total_last5 - away_sat_tied_total_last5
+  ,sat_ahead_avg_last5_diff = home_sat_ahead_avg_last5 - away_sat_ahead_avg_last5
+  ,sat_ahead_total_last5_diff = home_sat_ahead_total_last5 - away_sat_ahead_total_last5
+  ,sat_behind_avg_last5_diff = home_sat_behind_avg_last5 - away_sat_behind_avg_last5
+  ,sat_behind_total_last5_diff = home_sat_behind_total_last5 - away_sat_behind_total_last5
+  ,sat_close_avg_last5_diff = home_sat_close_avg_last5 - away_sat_close_avg_last5
+  ,sat_close_total_last5_diff = home_sat_close_total_last5 - away_sat_close_total_last5
+  ,usat_for_avg_last5_diff = home_usat_for_avg_last5 - away_usat_for_avg_last5
+  ,usat_against_avg_last5_diff = home_usat_against_avg_last5 - away_usat_against_avg_last5
+  ,usat_avg_last5_diff = home_usat_avg_last5 - away_usat_avg_last5
+  ,usat_total_last5_diff = home_usat_total_last5 - away_usat_total_last5
+  ,usat_tied_avg_last5_diff = home_usat_tied_avg_last5 - away_usat_tied_avg_last5
+  ,usat_tied_total_last5_diff = home_usat_tied_total_last5 - away_usat_tied_total_last5
+  ,usat_ahead_avg_last5_diff = home_usat_ahead_avg_last5 - away_usat_ahead_avg_last5
+  ,usat_ahead_total_last5_diff = home_usat_ahead_total_last5 - away_usat_ahead_total_last5
+  ,usat_behind_avg_last5_diff = home_usat_behind_avg_last5 - away_usat_behind_avg_last5
+  ,usat_behind_total_last5_diff = home_usat_behind_total_last5 - away_usat_behind_total_last5
+  ,usat_close_avg_last5_diff = home_usat_close_avg_last5 - away_usat_close_avg_last5
+  ,usat_close_total_last5_diff = home_usat_close_total_last5 - away_usat_close_total_last5
+  ,gf_avg_last5_diff = home_gf_avg_last5 - away_gf_avg_last5
+  ,ga_avg_last5_diff = home_ga_avg_last5 - away_ga_avg_last5
+  ,goal_diff_avg_last5_diff = home_goal_diff_avg_last5 - away_goal_diff_avg_last5
+  ,goal_diff_total_last5_diff = home_goal_diff_total_last5 - away_goal_diff_total_last5
+  ,ev_gf_avg_last5_diff = home_ev_gf_avg_last5 - away_ev_gf_avg_last5
+  ,ev_ga_avg_last5_diff = home_ev_ga_avg_last5 - away_ev_ga_avg_last5
+  ,ev_goal_diff_avg_last5_diff = home_ev_goal_diff_avg_last5 - away_ev_goal_diff_avg_last5
+  ,ev_goal_diff_total_last5_diff = home_ev_goal_diff_total_last5 - away_ev_goal_diff_total_last5
+  ,pp_gf_avg_last5_diff = home_pp_gf_avg_last5 - away_pp_gf_avg_last5
+  ,pp_ga_avg_last5_diff = home_pp_ga_avg_last5 - away_pp_ga_avg_last5
+  ,pp_goal_diff_avg_last5_diff = home_pp_goal_diff_avg_last5 - away_pp_goal_diff_avg_last5
+  ,pp_goal_diff_total_last5_diff = home_pp_goal_diff_total_last5 - away_pp_goal_diff_total_last5
+  ,sh_gf_avg_last5_diff = home_sh_gf_avg_last5 - away_sh_gf_avg_last5
+  ,sh_ga_avg_last5_diff = home_sh_ga_avg_last5 - away_sh_ga_avg_last5
+  ,sh_goal_diff_avg_last5_diff = home_sh_goal_diff_avg_last5 - away_sh_goal_diff_avg_last5
+  ,sh_goal_diff_total_last5_diff = home_sh_goal_diff_total_last5 - away_sh_goal_diff_total_last5
+  ,gf_in_p1_avg_last5_diff = home_gf_in_p1_avg_last5 - away_gf_in_p1_avg_last5
+  ,ga_in_p1_avg_last5_diff = home_ga_in_p1_avg_last5 - away_ga_in_p1_avg_last5
+  ,goal_in_p1_diff_avg_last5_diff = home_goal_in_p1_diff_avg_last5 - away_goal_in_p1_diff_avg_last5
+  ,goal_in_p1_diff_total_last5_diff = home_goal_in_p1_diff_total_last5 - away_goal_in_p1_diff_total_last5
+  ,gf_in_p2_avg_last5_diff = home_gf_in_p2_avg_last5 - away_gf_in_p2_avg_last5
+  ,ga_in_p2_avg_last5_diff = home_ga_in_p2_avg_last5 - away_ga_in_p2_avg_last5
+  ,goal_in_p2_diff_avg_last5_diff = home_goal_in_p2_diff_avg_last5 - away_goal_in_p2_diff_avg_last5
+  ,goal_in_p2_diff_total_last5_diff = home_goal_in_p2_diff_total_last5 - away_goal_in_p2_diff_total_last5
+  ,gf_in_p3_avg_last5_diff = home_gf_in_p3_avg_last5 - away_gf_in_p3_avg_last5
+  ,ga_in_p3_avg_last5_diff = home_ga_in_p3_avg_last5 - away_ga_in_p3_avg_last5
+  ,goal_in_p3_diff_avg_last5_diff = home_goal_in_p3_diff_avg_last5 - away_goal_in_p3_diff_avg_last5
+  ,goal_in_p3_diff_total_last5_diff = home_goal_in_p3_diff_total_last5 - away_goal_in_p3_diff_total_last5
+  ,gf_in_ot_avg_last5_diff = home_gf_in_ot_avg_last5 - away_gf_in_ot_avg_last5
+  ,ga_in_ot_avg_last5_diff = home_ga_in_ot_avg_last5 - away_ga_in_ot_avg_last5
+  ,goal_in_ot_diff_avg_last5_diff = home_goal_in_ot_diff_avg_last5 - away_goal_in_ot_diff_avg_last5
+  ,goal_in_ot_diff_total_last5_diff = home_goal_in_ot_diff_total_last5 - away_goal_in_ot_diff_total_last5
+  ,`5v5_TOI_avg_last5_diff` = home_5v5_TOI_avg_last5 - away_5v5_TOI_avg_last5
+  ,hits_for_avg_last5_diff = home_hits_for_avg_last5 - away_hits_for_avg_last5
+  ,hits_agst_avg_last5_diff = home_hits_agst_avg_last5 - away_hits_agst_avg_last5
+  ,hits_diff_avg_last5_diff = home_hits_diff_avg_last5 - away_hits_diff_avg_last5
+  ,hits_diff_total_last5_diff = home_hits_diff_total_last5 - away_hits_diff_total_last5
+  ,blks_for_avg_last5_diff = home_blks_for_avg_last5 - away_blks_for_avg_last5
+  ,blks_agst_avg_last5_diff = home_blks_agst_avg_last5 - away_blks_agst_avg_last5
+  ,blks_diff_avg_last5_diff = home_blks_diff_avg_last5 - away_blks_diff_avg_last5
+  ,blks_diff_total_last5_diff = home_blks_diff_total_last5 - away_blks_diff_total_last5
+  ,GvA_avg_last5_diff = home_GvA_avg_last5 - away_GvA_avg_last5
+  ,TkA_avg_last5_diff = home_TkA_avg_last5 - away_TkA_avg_last5
+  ,ENG_avg_last5_diff = home_ENG_avg_last5 - away_ENG_avg_last5
+  ,ENG_opp_avg_last5_diff = home_ENG_opp_avg_last5 - away_ENG_opp_avg_last5
+  ,MsS_avg_last5_diff = home_MsS_avg_last5 - away_MsS_avg_last5
+  ,PP_Opp_avg_last5_diff = home_PP_Opp_avg_last5 - away_PP_Opp_avg_last5
+  ,`PP%_last5_diff` = `home_PP%_last5` - `away_PP%_last5`
+  ,PP_Opp_agnst_avg_last5_diff = home_PP_Opp_agnst_avg_last5 - away_PP_Opp_agnst_avg_last5
+  ,`PenaltyKill%_last5_diff` = `home_PenatlyKill%_last5` - `away_PenatlyKill%_last5`
+  ,W_last5_diff = home_W_last5 - away_W_last5
+  ,L_last5_diff = home_L_last5 - away_L_last5
+  ,OT_last5_diff = home_OT_last5 - away_OT_last5
+  ,Pts_last5_diff = home_Pts_last5 - away_Pts_last5
+  ,`Pt%_last5_diff` = `home_Pt%_last5` - `away_Pt%_last5`
+  ,SO_last5_diff = home_SO_last5 - away_SO_last5
+  ,OT_win_last5_diff = home_OT_win_last5 - away_OT_win_last5
+  
+)
+
+```
+
+```{r}
+TotalPredictionData_Final_v2_diffs <- TotalPredictionData_Final_v2 %>% select(GameKey, Date, HomeTeam, AwayTeam, Season, HomeGameNumber, AwayGameNumber, HomeTeamWin, Total_Goals
+                                        ,fo_avg_diff
+  ,fow_avg_diff 
+  ,fol_avg_diff 
+  ,`fow%_diff`
+  ,ev_fo_avg_diff
+  ,ev_fow_avg_diff
+  ,ev_fol_avg_diff
+  ,`ev_fow%_diff` 
+  ,pp_fo_avg_diff 
+  ,pp_fow_avg_diff
+  ,pp_fol_avg_diff
+  ,`pp_fow%_diff` 
+  ,sh_fo_avg_diff 
+  ,sh_fow_avg_diff
+  ,sh_fol_avg_diff
+  ,`sh_fow%_diff`
+  ,oz_fo_avg_diff
+  ,oz_fow_avg_diff
+  ,oz_fol_avg_diff
+  ,`oz_fow%_diff` 
+  ,nz_fo_avg_diff 
+  ,nz_fow_avg_diff
+  ,nz_fol_avg_diff
+  ,`nz_fow%_diff` 
+  ,dz_fo_avg_diff 
+  ,dz_fow_avg_diff
+  ,dz_fol_avg_diff 
+  ,`dz_fow%_diff` 
+  ,shots_avg_diff 
+  ,shots_against_avg_diff 
+  ,sat_for_avg_diff 
+  ,sat_against_avg_diff 
+  ,sat_avg_diff 
+  ,sat_total_diff
+  ,sat_tied_avg_diff 
+  ,sat_tied_total_diff 
+  ,sat_ahead_avg_diff 
+  ,sat_ahead_total_diff
+  ,sat_behind_avg_diff 
+  ,sat_behind_total_diff 
+  ,sat_close_avg_diff 
+  ,sat_close_total_diff 
+  ,usat_for_avg_diff 
+  ,usat_against_avg_diff 
+  ,usat_avg_diff 
+  ,usat_total_diff 
+  ,usat_tied_avg_diff
+  ,usat_tied_total_diff
+  ,usat_ahead_avg_diff 
+  ,usat_ahead_total_diff
+  ,usat_behind_avg_diff 
+  ,usat_behind_total_diff
+  ,usat_close_avg_diff
+  ,usat_close_total_diff
+  ,gf_avg_diff
+  ,ga_avg_diff
+  ,goal_diff_avg_diff
+  ,goal_diff_total_diff
+  ,ev_gf_avg_diff
+  ,ev_ga_avg_diff
+  ,ev_goal_diff_avg_diff
+  ,ev_goal_diff_total_diff
+  ,pp_gf_avg_diff 
+  ,pp_ga_avg_diff
+  ,pp_goal_diff_avg_diff
+  ,pp_goal_diff_total_diff
+  ,sh_gf_avg_diff
+  ,sh_ga_avg_diff
+  ,sh_goal_diff_avg_diff
+  ,sh_goal_diff_total_diff
+  ,gf_in_p1_avg_diff
+  ,ga_in_p1_avg_diff
+  ,goal_in_p1_diff_avg_diff
+  ,goal_in_p1_diff_total_diff
+  ,gf_in_p2_avg_diff
+  ,ga_in_p2_avg_diff
+  ,goal_in_p2_diff_avg_diff
+  ,goal_in_p2_diff_total_diff
+  ,gf_in_p3_avg_diff 
+  ,ga_in_p3_avg_diff 
+  ,goal_in_p3_diff_avg_diff 
+  ,goal_in_p3_diff_total_diff 
+  ,gf_in_ot_avg_diff 
+  ,ga_in_ot_avg_diff 
+  ,goal_in_ot_diff_avg_diff 
+  ,goal_in_ot_diff_total_diff 
+  ,`5v5_TOI_avg_diff` 
+  ,hits_for_avg_diff
+  ,hits_agst_avg_diff 
+  ,hits_diff_avg_diff 
+  ,hits_diff_total_diff 
+  ,blks_for_avg_diff 
+  ,blks_agst_avg_diff
+  ,blks_diff_avg_diff 
+  ,blks_diff_total_diff
+  ,GvA_avg_diff
+  ,TkA_avg_diff 
+  ,ENG_avg_diff 
+  ,ENG_opp_avg_diff 
+  ,MsS_avg_diff
+  ,PP_Opp_avg_diff 
+  ,`PP%_diff` 
+  ,PP_Opp_agnst_avg_diff 
+  ,`PenaltyKill%_diff` 
+  ,W_diff
+  ,L_diff 
+  ,OT_diff
+  ,Pts_diff 
+  ,`Pt%_diff` 
+  ,SO_diff
+  ,OT_win_diff 
+  ,days_since_last_game_diff 
+  ,Winning_streak_diff 
+  
+  #last5 stats
+  ,fo_avg_last5_diff 
+  ,fow_avg_last5diff 
+  ,fol_avg_last5_diff 
+  ,`fow%_last5_diff` 
+  ,ev_fo_avg_last5_diff 
+  ,ev_fow_avg_last5_diff 
+  ,ev_fol_avg_last5_diff 
+  ,`ev_fow%_last5_diff` 
+  ,pp_fo_avg_last5_diff 
+  ,pp_fow_avg_last5_diff 
+  ,pp_fol_avg_last5_diff 
+  ,`pp_fow%_last5_diff` 
+  ,sh_fo_avg_last5_diff
+  ,sh_fow_avg_last5_diff 
+  ,sh_fol_avg_last5_diff 
+  ,`sh_fow%_last5_diff` 
+  ,oz_fo_avg_last5_diff 
+  ,oz_fow_avg_last5_diff 
+  ,oz_fol_avg_last5_diff 
+  ,`oz_fow%_last5_diff` 
+  ,nz_fo_avg_last5_diff 
+  ,nz_fow_avg_last5_diff 
+  ,nz_fol_avg_last5_diff
+  ,`nz_fow%_last5_diff` 
+  ,dz_fo_avg_last5_diff
+  ,dz_fow_avg_last5_diff 
+  ,dz_fol_avg_last5_diff 
+  ,`dz_fow%_last5_diff` 
+  ,shots_avg_last5_diff 
+  ,shots_against_avg_last5_diff 
+  ,sat_for_avg_last5_diff 
+  ,sat_against_avg_last5_diff 
+  ,sat_avg_last5_diff 
+  ,sat_total_last5_diff
+  ,sat_tied_avg_last5_diff
+  ,sat_tied_total_last5_diff 
+  ,sat_ahead_avg_last5_diff
+  ,sat_ahead_total_last5_diff 
+  ,sat_behind_avg_last5_diff 
+  ,sat_behind_total_last5_diff
+  ,sat_close_avg_last5_diff 
+  ,sat_close_total_last5_diff 
+  ,usat_for_avg_last5_diff 
+  ,usat_against_avg_last5_diff 
+  ,usat_avg_last5_diff 
+  ,usat_total_last5_diff 
+  ,usat_tied_avg_last5_diff
+  ,usat_tied_total_last5_diff 
+  ,usat_ahead_avg_last5_diff
+  ,usat_ahead_total_last5_diff 
+  ,usat_behind_avg_last5_diff 
+  ,usat_behind_total_last5_diff 
+  ,usat_close_avg_last5_diff 
+  ,usat_close_total_last5_diff 
+  ,gf_avg_last5_diff 
+  ,ga_avg_last5_diff 
+  ,goal_diff_avg_last5_diff 
+  ,goal_diff_total_last5_diff 
+  ,ev_gf_avg_last5_diff 
+  ,ev_ga_avg_last5_diff 
+  ,ev_goal_diff_avg_last5_diff 
+  ,ev_goal_diff_total_last5_diff 
+  ,pp_gf_avg_last5_diff 
+  ,pp_ga_avg_last5_diff 
+  ,pp_goal_diff_avg_last5_diff 
+  ,pp_goal_diff_total_last5_diff 
+  ,sh_gf_avg_last5_diff 
+  ,sh_ga_avg_last5_diff 
+  ,sh_goal_diff_avg_last5_diff
+  ,sh_goal_diff_total_last5_diff 
+  ,gf_in_p1_avg_last5_diff 
+  ,ga_in_p1_avg_last5_diff 
+  ,goal_in_p1_diff_avg_last5_diff 
+  ,goal_in_p1_diff_total_last5_diff
+  ,gf_in_p2_avg_last5_diff 
+  ,ga_in_p2_avg_last5_diff
+  ,goal_in_p2_diff_avg_last5_diff 
+  ,goal_in_p2_diff_total_last5_diff 
+  ,gf_in_p3_avg_last5_diff 
+  ,ga_in_p3_avg_last5_diff 
+  ,goal_in_p3_diff_avg_last5_diff
+  ,goal_in_p3_diff_total_last5_diff 
+  ,gf_in_ot_avg_last5_diff 
+  ,ga_in_ot_avg_last5_diff 
+  ,goal_in_ot_diff_avg_last5_diff
+  ,goal_in_ot_diff_total_last5_diff 
+  ,`5v5_TOI_avg_last5_diff`
+  ,hits_for_avg_last5_diff 
+  ,hits_agst_avg_last5_diff
+  ,hits_diff_avg_last5_diff
+  ,hits_diff_total_last5_diff
+  ,blks_for_avg_last5_diff
+  ,blks_agst_avg_last5_diff 
+  ,blks_diff_avg_last5_diff 
+  ,blks_diff_total_last5_diff 
+  ,GvA_avg_last5_diff 
+  ,TkA_avg_last5_diff
+  ,ENG_avg_last5_diff 
+  ,ENG_opp_avg_last5_diff 
+  ,MsS_avg_last5_diff
+  ,PP_Opp_avg_last5_diff 
+  ,`PP%_last5_diff`
+  ,PP_Opp_agnst_avg_last5_diff 
+  ,`PenaltyKill%_last5_diff`
+  ,W_last5_diff
+  ,L_last5_diff
+  ,OT_last5_diff 
+  ,Pts_last5_diff
+  ,`Pt%_last5_diff` 
+  ,SO_last5_diff
+  ,OT_win_last5_diff
+                                        )
+```
+
+```{r}
+save(TotalPredictionData_Final_v2, TotalPredictionData_Final_v2_diffs, file = "Prediction_Data_v2.RData")
+```
+
+
+

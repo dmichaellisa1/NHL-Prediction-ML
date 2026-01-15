@@ -1,0 +1,60 @@
+
+
+```{r}
+library(rvest)
+library(dplyr)
+library(stringr)
+```
+
+
+
+```{r}
+team <- "columbus-blue-jackets"
+team <- "montreal-canadiens"
+
+url = paste("https://www.dailyfaceoff.com/teams/", team,"/line-combinations", sep = "")
+
+TeamRead <- read_html(url)
+
+#
+#Players <- TeamRead %>% 
+#  html_elements(".xl\\:w-48 .xl\\:text-base , div:nth-child(12) .xl\\:text-base") %>% 
+#  html_text()
+
+WebInfo <- TeamRead %>% 
+  html_elements(".text-white , .xl\\:text-base") %>% 
+  html_text()
+
+```
+
+```{r}
+#Players
+```
+
+```{r}
+#Goalies
+```
+
+```{r}
+WebInfo
+```
+
+
+```{r}
+Players <- as.data.frame(WebInfo) %>% 
+  filter(row_number() > which(WebInfo=='RW') & row_number() < which(WebInfo=='1st Powerplay Unit')) %>% 
+  filter(WebInfo != "Defensive Pairings")
+
+Goalies <- as.data.frame(WebInfo) %>% 
+  filter(row_number() > which(WebInfo=='Goalies') & row_number() < which(WebInfo=='Goalies') + 3) 
+
+TeamPlayers <- rbind(Players, Goalies) %>% rename(Players = WebInfo)
+```
+
+
+
+
+
+
+
+

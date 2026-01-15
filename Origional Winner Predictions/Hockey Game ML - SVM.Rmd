@@ -1,0 +1,244 @@
+```{r}
+library(dplyr)
+```
+
+```{r}
+load("Prediction_Data_v2.RData")
+```
+
+```{r}
+
+# Encoding the target feature as factor 
+TotalPredictionData_Final_v2$HomeTeamWin = factor(TotalPredictionData_Final_v2$HomeTeamWin, levels = c(0, 1)) 
+
+#first 5 columns are text data that is extrapolated elsewhere in the data set. Removed these so model can run
+GameData <- TotalPredictionData_Final_v2 %>% 
+  select(-c(GameKey, Date, HomeTeam, AwayTeam, Season, Total_Goals)) 
+
+set.seed(42)
+
+train.index <- createDataPartition(GameData$HomeTeamWin, p = .8, list = FALSE)
+train_db <- GameData[ train.index,]
+test_db  <- GameData[-train.index,]
+```
+
+
+
+```{r}
+#install.packages('e1071') 
+library(e1071) 
+```
+
+
+```{r}
+classifier = svm(formula = HomeTeamWin ~ ., 
+                 data = train_db, 
+                 type = 'C-classification', 
+                 kernel = 'linear') 
+```
+
+```{r}
+y_pred <- predict(classifier, test_db)
+
+pred_dat <- cbind.data.frame(y_pred , test_db$HomeTeamWin)
+
+t <- table(y_pred, test_db$HomeTeamWin) # Create table
+confusionMatrix(t, positive = "1")
+```
+```{r}
+classifier = svm(formula = HomeTeamWin ~ ., 
+                 data = train_db, 
+                 type = 'C-classification', 
+                 kernel = 'radial') 
+```
+
+
+```{r}
+y_pred <- predict(classifier, test_db)
+
+pred_dat <- cbind.data.frame(y_pred , test_db$HomeTeamWin)
+
+t <- table(y_pred, test_db$HomeTeamWin) # Create table
+confusionMatrix(t, positive = "1")
+```
+```{r}
+#tune model
+tune_out <- 
+    tune.svm(x = train_db %>% select(-HomeTeamWin), y = train_db$HomeTeamWin, 
+             type = "C-classification", 
+             kernel = "radial",  cost = 10^(1:3), 
+             gamma = c(0.1, 1, 10))
+
+#list optimal values
+tune_out$best.parameters$cost
+tune_out$best.parameters$gamma
+#tune_out$best.parameters$coef0
+```
+
+```{r}
+#https://www.wackycoup.com/post/parallel-processing-nested-for-loops-with-examples-for-adaboost-and-svm-in-r/
+gamma <- c(0.005, 0.01, 0.02, 0.1, 0.5 , 1)
+cost <- c(1, 4, 8, 16, 24, 32, 100, 1000)
+
+library(doSNOW) # package for parallel computing in R  
+library(foreach) # package that converts nested for loops into parallel processes and passes it to doSNOW for parallel processing  
+
+
+numOfClusters <- parallel::detectCores() - 2 # this is the number cores available in your computer
+# My computer has 16 but I'm using 10 so that I have a few cores available for my OS to run other processes  
+# you can find out how many cores you have by running this --> parallel::detectCores() in your R console  
+
+cl <- makeCluster(numOfClusters) # define your clusters
+registerDoSNOW(cl) # register your clusters so that when you deploy them doSNOW knows what to do  
+
+# Now the thing to note is that foreach() loop returns list items so you need 
+# be very sure what you want it to return.  
+# I generally return the model as well as its validation metrics so that it is easy for me to
+# view them all together  
+
+
+# the key to nested for loop in foreach package is %:% operator which tells creates
+# parallelises the inside loop  
+# then the %dopar% operator actually tells doSNOW to implement the parallel process in a cluster
+
+svm_radial <- foreach(g = gamma) %:% 
+  foreach(c = cost) %dopar% {
+  library(e1071) # we have to call the library inside each cluster
+  tune.out = tune(svm, HomeTeamWin~., data = train_db, kernel = "radial",
+                  cross = 5,
+                  ranges = list(cost = c, gamma = g))
+  
+  # for each combination of gamma and degree we will retrieve  
+  # model object so that we can use it to predict  
+  # model's parameters so that we can select the best one  
+ list(best_model = tune.out$best.model, best_params = tune.out$best.parameters) 
+}
+
+
+stopCluster(cl) # DONT FORGET TO STOP YOUR CLUSTERS!
+```
+
+Best of these was cost = 1000
+gamma = 0.005
+Train accuracy = 57.402
+Try some more small values
+
+
+```{r}
+gamma <- c(0.005, 0.001, 0.0001)
+cost <- c(1, 100, 1000, 10000, 100000)
+
+library(doSNOW) # package for parallel computing in R  
+library(foreach) # package that converts nested for loops into parallel processes and passes it to doSNOW for parallel processing  
+
+
+numOfClusters <- parallel::detectCores() - 2
+
+cl <- makeCluster(numOfClusters) # define your clusters
+registerDoSNOW(cl)
+
+svm_radial <- foreach(g = gamma) %:% 
+  foreach(c = cost) %dopar% {
+  library(e1071) # we have to call the library inside each cluster
+  tune.out = tune(svm, HomeTeamWin~., data = train_db, kernel = "radial",
+                  cross = 5,
+                  ranges = list(cost = c, gamma = g))
+  
+  # for each combination of gamma and degree we will retrieve  
+  # model object so that we can use it to predict  
+  # model's parameters so that we can select the best one  
+ list(best_model = tune.out$best.model, best_params = tune.out$best.parameters) 
+  }
+
+stopCluster(cl)
+```
+
+
+Best was:
+cost = 1
+gamma = 0.0001
+
+
+```{r}
+classifier = svm(formula = HomeTeamWin ~ ., 
+                 data = train_db, 
+                 type = 'C-classification', 
+                 kernel = 'radial',
+                 cost = 1,
+                 gamma = 0.0001) 
+```
+
+
+```{r}
+y_pred <- predict(classifier, test_db)
+
+pred_dat <- cbind.data.frame(y_pred , test_db$HomeTeamWin)
+
+t <- table(y_pred, test_db$HomeTeamWin) # Create table
+confusionMatrix(t, positive = "1")
+```
+```{r}
+set.seed(42)
+classifier_prob = svm(formula = HomeTeamWin ~ ., 
+                 data = train_db, 
+                 type = 'C-classification', 
+                 kernel = 'radial',
+                 cost = 1,
+                 gamma = 0.0001,
+                 probability = TRUE) 
+```
+
+```{r}
+y_pred_prob <- predict(classifier_prob, test_db, probability = TRUE)
+```
+
+
+```{r}
+predict_probs <-data.frame( attr(y_pred_prob, "probabilities")) %>% rename("Home" = X1, "Away" = X0)
+
+predict_probs <- predict_probs %>% mutate(predict_HomeTeamWin = case_when(Home >= 0.5 ~ 1, Home < 0.5 ~ 0))
+
+pred_dat_total <- cbind.data.frame(predict_probs , actual_HomeTeamWin = test_db$HomeTeamWin)
+
+t <- table(predict = pred_dat_total$predict_HomeTeamWin, actual = pred_dat_total$actual_HomeTeamWin) # Create table
+confusionMatrix(t, positive = "1")
+```
+
+```{r}
+higherconfidence <- pred_dat_total %>% filter(Home > 0.63 | Away > 0.63)
+
+t2 <- table(predict = higherconfidence$predict_HomeTeamWin, actual = higherconfidence$actual_HomeTeamWin) # Create table
+confusionMatrix(t2, positive = "1")
+```
+
+
+```{r}
+totaltest <- TotalPredictionData_Final_v2[-train.index,] %>% select(Date, HomeTeam, AwayTeam, Season)
+
+highconfidence_names <- cbind(pred_dat_total, totaltest) %>% filter(Home > 0.63 | Away > 0.63)
+```
+
+
+```{r}
+higherconfidence_goodmonths <- highconfidence_names %>% filter(month(Date) %in% c(1,2,3))
+
+t3 <- table(predict = higherconfidence_goodmonths$predict_HomeTeamWin, actual = higherconfidence_goodmonths$actual_HomeTeamWin) # Create table
+confusionMatrix(t3, positive = "1")
+```
+```{r}
+highconfidence_names <- highconfidence_names %>% mutate(Correct = case_when(predict_HomeTeamWin == actual_HomeTeamWin ~ 1, predict_HomeTeamWin != actual_HomeTeamWin ~ 0))
+
+
+
+highconfidence_names %>% group_by(month(Date)) %>% summarise(accuracy = sum(Correct)/n(), n())
+```
+
+
+```{r}
+highconfidence_names %>% group_by(Season) %>% summarise(accuracy = sum(Correct)/n(), n())
+```
+
+
+
+
+
