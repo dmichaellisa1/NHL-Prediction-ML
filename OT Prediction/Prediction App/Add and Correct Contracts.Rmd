@@ -1,0 +1,47 @@
+
+
+```{r}
+load("TotalContracts.RData")
+```
+
+
+#```{r}
+#TotalContracts <- TotalContracts %>% filter(!(Player == "JOSH DOAN" & SeasonNumber > 2024))
+#```
+
+
+```{r}
+
+PlayerName <- "JAMES REIMER"
+
+columns= c("Player", "SeasonNumber", "CapHitNumber") 
+ 
+playerrecord = data.frame(matrix(nrow = 8, ncol = length(columns))) 
+ 
+colnames(playerrecord) = columns
+ 
+playerrecord$Player <- PlayerName 
+
+playerrecord$SeasonNumber <- seq(2026,2033)
+
+playerrecord$CapHitNumber <- c(
+  
+  
+   850000 #2026
+  ,0 #2027
+  ,0 #2028
+  ,0 #2029
+  ,0 #2030
+  ,0  #2031
+  ,0  #2032
+  ,0  #2033
+)
+  
+playerrecord <- playerrecord %>% filter(CapHitNumber != 0)
+
+TotalContracts <- rbind(TotalContracts, playerrecord)
+```
+
+```{r}
+save(TotalContracts, file = "TotalContracts.RData")
+```
