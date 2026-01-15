@@ -1,0 +1,139 @@
+
+
+```{r}
+load("Clean2024_2025_Data_2.RData")
+load("C:/Users/dmich/Documents/Hockey Prediction/OT Prediction/XGBoost_Model_02.RData")
+```
+
+```{r}
+
+Predict_Data <- Clean2024_2025_Data_2 %>% select(-GameKey, -Season, -AwayTeam, -HomeTeam, -AwayGameNumber, -HomeGameNumber, -Date) 
+
+dpredict <- xgb.DMatrix(data = as.matrix(Predict_Data %>% select(-OT)), label = Predict_Data$OT)
+
+```
+
+```{r}
+boost_preds <- predict(bst_final_MaxAUCPR, dpredict) # Create predictions for xgboost model
+# Join predictions and actual
+pred_dat <- cbind.data.frame(boost_preds , Predict_Data$OT)
+names(pred_dat) <- c("predictions", "response")
+
+#oc<- optimal.cutpoints(X = "predictions",
+#                       status = "response",
+#                       tag.healthy = 0,
+#                       data = pred_dat,
+#                       methods = "MaxEfficiency")
+
+#boost_preds_MaxAUC <- predict(bst_final_MaxAUC, dtest) # Create predictions for xgboost model
+
+#pred_dat <- cbind.data.frame(boost_preds_MaxAUC , test_db$OT)#
+# Convert predictions to classes, using optimal cut-off
+boost_pred_class <- rep(0, length(boost_preds))
+#boost_pred_class[boost_preds >= cutoffvalue] <- 1
+#0.5400651
+boost_pred_class[boost_preds >= .425] <- 1
+
+
+t <- table(boost_pred_class, actual = Predict_Data$OT) # Create table
+confusionMatrix(t, positive = "1") # Produce confusion matrix
+```
+
+
+
+
+
+
+
+```{r}
+ (12 * 32.5) - (33 * 10) 
+```
+```{r}
+test <- confusionMatrix(t, positive = "1")
+
+
+test[["byClass"]][["Pos Pred Value"]]
+
+```
+
+```{r}
+testcuttoffs <- seq(from = 0.4, to = 0.46, by = 0.0001)
+
+
+Results <- data.frame()
+
+for (i in testcuttoffs) {
+ 
+  
+boost_preds <- predict(bst_final_MaxAUCPR, dpredict) # Create predictions for xgboost model
+# Join predictions and actual
+pred_dat <- cbind.data.frame(boost_preds , Predict_Data$OT)
+names(pred_dat) <- c("predictions", "response")
+  
+boost_pred_class <- rep(0, length(boost_preds))  
+
+boost_pred_class[boost_preds >= i] <- 1
+
+
+t <- table(boost_pred_class, actual = Predict_Data$OT) # Create table
+m <- confusionMatrix(t, positive = "1") # Produce confusion matrix
+
+PosPred <- m[["byClass"]][["Pos Pred Value"]]
+
+
+newrow <- data.frame(Cuffoff = i, PosPredValue = PosPred)
+
+Results <- rbind(Results, newrow)
+
+
+}
+```
+
+```{r}
+boost_preds <- predict(bst_final_MaxAUCPR, dpredict) # Create predictions for xgboost model
+# Join predictions and actual
+pred_dat <- cbind.data.frame(boost_preds , Predict_Data$OT)
+names(pred_dat) <- c("predictions", "response")
+
+#oc<- optimal.cutpoints(X = "predictions",
+#                       status = "response",
+#                       tag.healthy = 0,
+#                       data = pred_dat,
+#                       methods = "MaxEfficiency")
+
+#boost_preds_MaxAUC <- predict(bst_final_MaxAUC, dtest) # Create predictions for xgboost model
+
+#pred_dat <- cbind.data.frame(boost_preds_MaxAUC , test_db$OT)#
+# Convert predictions to classes, using optimal cut-off
+boost_pred_class <- rep(0, length(boost_preds))
+#boost_pred_class[boost_preds >= cutoffvalue] <- 1
+#0.5400651
+boost_pred_class[boost_preds >= .4266] <- 1
+
+
+t <- table(boost_pred_class, actual = Predict_Data$OT) # Create table
+confusionMatrix(t, positive = "1") # Produce confusion matrix
+```
+
+
+
+
+```{r}
+ (12 * 32.5) - (29 * 10) 
+```
+
+```{r}
+cbind(Clean2024_2025_Data_2 %>% select(GameKey, HomeTeam, AwayTeam, Date, OT), boost_preds, boost_pred_class) %>% arrange(desc(Date))
+```
+
+
+
+```{r}
+Clean2024_2025_Data_2 %>% group_by(month(Date)) %>% summarise(sum(OT), n(), sum(OT/n()))
+```
+
+```{r}
+cbind(Clean2024_2025_Data_2 %>% select(GameKey, HomeTeam, AwayTeam, Date, OT), boost_preds, boost_pred_class) %>% mutate(CorrectGuess = boost_pred_class == 1 & OT == 1) %>%  group_by(month(Date)) %>% summarise(sum(OT), n(), sum(OT/n()), sum(boost_pred_class), sum(CorrectGuess), sum(CorrectGuess)/sum(boost_pred_class))
+```
+
+

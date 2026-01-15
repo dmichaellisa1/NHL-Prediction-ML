@@ -1,0 +1,557 @@
+
+
+```{r}
+library(RSelenium)
+library(rvest)
+library(dplyr)
+library(xml2)
+library(lubridate)
+library(caret)
+library(stringr)
+library(janitor)
+```
+
+```{r}
+#Scrape past games
+
+#Power Play
+
+port <-4590L #update if needed may error if not cleared
+
+season <- c("20242025")
+
+df <- data.frame()
+totaldf <- data.frame()
+
+colnum <- 21 #for pp
+
+
+rD <- rsDriver(browser="firefox", port=port, verbose=F, chromever = NULL)
+
+remDr = rD[['client']]
+
+#for (season in seasonrange) {
+ 
+   urlpp <- paste("https://www.nhl.com/stats/teams?aggregate=0&report=powerplay&reportType=game&seasonFrom=" ,season, "&seasonTo=", season, "&dateFromSeason&gameType=2&sort=gameDate&page=0&pageSize=100", sep = "")
+
+  
+
+
+remDr$navigate(urlpp) #this will open a chrome window (that means it is working)
+
+
+Sys.sleep(7)
+
+df <- data.frame()
+
+src = remDr$getPageSource()[[1]] #we are just selecting everything for now
+
+#get the number of pages that need to be looped through
+PageNumbersScrp = read_html(src) %>% 
+  html_elements(".ioWkBh") %>% 
+  html_text()
+
+
+#looks complicated, but is how we get the number from the list
+PageNumbers <- strsplit(PageNumbersScrp[1], ' ')[[1]][3]
+
+PageNumbers <- as.integer(PageNumbers) #convert to a number
+
+
+
+## read in the info from the first table
+df = read_html(src) %>% 
+  xml_nodes(xpath='//*[contains(concat( " ", @class, " " ), concat( " ", "rt-td", " " ))]') %>%
+  xml_text() %>%
+  matrix(.,ncol=colnum, byrow = T) %>%
+  data.frame(.,stringsAsFactors = F)
+
+#if there is only 1 page, skip loop
+if (PageNumbers != 1) {
+
+for (i in 2:PageNumbers) {
+  webElem <- remDr$findElement("css", ".fFqRwM")
+webElem$sendKeysToElement(list(key = "end")) #scroll to bottom. need button to be on page
+  Sys.sleep(5)
+  
+  pages = remDr$findElement(using = "css selector",".fFqRwM") #we are selecting the next button
+  pages$clickElement()  
+  
+  
+  ## wait 3 seconds to load (can reduce this)
+  Sys.sleep(5)
+  
+  src = remDr$getPageSource()[[1]]
+  temp = read_html(src) %>% 
+    xml_nodes(xpath='//*[contains(concat( " ", @class, " " ), concat( " ", "rt-td", " " ))]') %>%
+    xml_text() %>%
+    matrix(., ncol=colnum, byrow = T) %>%
+    data.frame(., stringsAsFactors = F)
+  
+  ## bind new data
+  df = df %>% bind_rows(temp)
+  
+  
+  
+}
+}
+totaldf <- rbind(totaldf, df)
+#}
+
+colnames(totaldf) = c("index", "team", "game", "gp", 
+                         "W", "L", "T", "OT", "P", "P%", "PP Opp", "PP GF", "SH GF", "PP GD", "PP TOI/GP", "PP Opp/GP", "PP GF/GP", "SH GA/GP", "PP GD/GP", "PP%", "Net PP%")
+
+PP_Data <- totaldf
+
+
+#close the browser
+remDr$close()
+rD$server$stop()
+rm(rD, remDr)
+gc()
+
+#free the port
+system("taskkill /im java.exe /f", intern=FALSE, ignore.stdout=FALSE)
+```
+
+```{r}
+save(PP_Data, file = "PP_Data.RData")
+```
+
+
+```{r}
+
+#Faceoffs
+
+port <-4590L #update if needed may error if not cleared
+
+season <- c("20242025")
+#seasonrange <- c("20142015", "20152016", "20162017", "20172018", "20182019", "20192020", "20202021", "20212022", "20222023", "20232024")
+
+df <- data.frame()
+totaldf <- data.frame()
+
+colnum <- 26 #for pp
+
+
+rD <- rsDriver(browser="firefox", port=port, verbose=F, chromever = NULL)
+
+remDr = rD[['client']]
+
+#for (season in seasonrange) {
+ 
+   urlfo <- paste("https://www.nhl.com/stats/teams?aggregate=0&report=faceoffwins&reportType=game&seasonFrom=" ,season, "&seasonTo=", season, "&dateFromSeason&gameType=2&sort=gameDate&page=0&pageSize=100", sep = "")
+
+  
+
+
+remDr$navigate(urlfo) #this will open a chrome window (that means it is working)
+
+
+Sys.sleep(7)
+
+df <- data.frame()
+
+src = remDr$getPageSource()[[1]] #we are just selecting everything for now
+
+#get the number of pages that need to be looped through
+PageNumbersScrp = read_html(src) %>% 
+  html_elements(".ioWkBh") %>% 
+  html_text()
+
+
+#looks complicated, but is how we get the number from the list
+PageNumbers <- strsplit(PageNumbersScrp[1], ' ')[[1]][3]
+
+PageNumbers <- as.integer(PageNumbers) #convert to a number
+
+
+
+## read in the info from the first table
+df = read_html(src) %>% 
+  xml_nodes(xpath='//*[contains(concat( " ", @class, " " ), concat( " ", "rt-td", " " ))]') %>%
+  xml_text() %>%
+  matrix(.,ncol=colnum, byrow = T) %>%
+  data.frame(.,stringsAsFactors = F)
+
+#if there is only 1 page, skip loop
+if (PageNumbers != 1) {
+
+for (i in 2:PageNumbers) {
+  webElem <- remDr$findElement("css", ".fFqRwM")
+webElem$sendKeysToElement(list(key = "end")) #scroll to bottom. need button to be on page
+  Sys.sleep(5)
+  
+  pages = remDr$findElement(using = "css selector",".fFqRwM") #we are selecting the next button
+  pages$clickElement()  
+  
+  
+  ## wait 3 seconds to load (can reduce this)
+  Sys.sleep(5)
+  
+  src = remDr$getPageSource()[[1]]
+  temp = read_html(src) %>% 
+    xml_nodes(xpath='//*[contains(concat( " ", @class, " " ), concat( " ", "rt-td", " " ))]') %>%
+    xml_text() %>%
+    matrix(., ncol=colnum, byrow = T) %>%
+    data.frame(., stringsAsFactors = F)
+  
+  ## bind new data
+  df = df %>% bind_rows(temp)
+  
+  
+  
+}
+}
+totaldf <- rbind(totaldf, df)
+#}
+
+colnames(totaldf) = c("index", "team", "game", "gp", 
+                         "fo", "fow", "fol", "fow%", "ev_fo", "ev_fow", "ev_fol", "pp_fo", "pp_fow", "pp_fol", "sh_fo", "sh_fow", "sh_fol", "oz_fo", "oz_fow", "oz_fol", "nz_fo", "nz_fow", "nz_fol", "dz_fo", "dz_fow", "dz_fol")
+
+FO_Data <- totaldf
+
+
+#close the browser
+remDr$close()
+rD$server$stop()
+rm(rD, remDr)
+gc()
+
+#free the port
+system("taskkill /im java.exe /f", intern=FALSE, ignore.stdout=FALSE)
+```
+
+```{r}
+save(FO_Data, file = "FO_Data.RData")
+```
+
+
+```{r}
+
+#Shots
+
+port <-4590L #update if needed may error if not cleared
+
+
+season <- c("20242025")
+#seasonrange <- c("20142015", "20152016", "20162017", "20172018", "20182019", "20192020", "20202021", "20212022", "20222023", "20232024")
+
+df <- data.frame()
+totaldf <- data.frame()
+
+colnum <- 19 #for pp
+
+
+rD <- rsDriver(browser="firefox", port=port, verbose=F, chromever = NULL)
+
+remDr = rD[['client']]
+
+#for (season in seasonrange) {
+ 
+   urlshots <- paste("https://www.nhl.com/stats/teams?aggregate=0&report=summaryshooting&reportType=game&seasonFrom=" ,season, "&seasonTo=", season, "&dateFromSeason&gameType=2&sort=gameDate&page=0&pageSize=100", sep = "")
+
+  
+
+
+remDr$navigate(urlshots) #this will open a chrome window (that means it is working)
+
+
+Sys.sleep(7)
+
+df <- data.frame()
+
+src = remDr$getPageSource()[[1]] #we are just selecting everything for now
+
+#get the number of pages that need to be looped through
+PageNumbersScrp = read_html(src) %>% 
+  html_elements(".ioWkBh") %>% 
+  html_text()
+
+
+#looks complicated, but is how we get the number from the list
+PageNumbers <- strsplit(PageNumbersScrp[1], ' ')[[1]][3]
+
+PageNumbers <- as.integer(PageNumbers) #convert to a number
+
+
+
+## read in the info from the first table
+df = read_html(src) %>% 
+  xml_nodes(xpath='//*[contains(concat( " ", @class, " " ), concat( " ", "rt-td", " " ))]') %>%
+  xml_text() %>%
+  matrix(.,ncol=colnum, byrow = T) %>%
+  data.frame(.,stringsAsFactors = F)
+
+#if there is only 1 page, skip loop
+if (PageNumbers != 1) {
+
+for (i in 2:PageNumbers) {
+  webElem <- remDr$findElement("css", ".fFqRwM")
+webElem$sendKeysToElement(list(key = "end")) #scroll to bottom. need button to be on page
+  Sys.sleep(5)
+  
+  pages = remDr$findElement(using = "css selector",".fFqRwM") #we are selecting the next button
+  pages$clickElement()  
+  
+  
+  ## wait 3 seconds to load (can reduce this)
+  Sys.sleep(5)
+  
+  src = remDr$getPageSource()[[1]]
+  temp = read_html(src) %>% 
+    xml_nodes(xpath='//*[contains(concat( " ", @class, " " ), concat( " ", "rt-td", " " ))]') %>%
+    xml_text() %>%
+    matrix(., ncol=colnum, byrow = T) %>%
+    data.frame(., stringsAsFactors = F)
+  
+  ## bind new data
+  df = df %>% bind_rows(temp)
+  
+  
+  
+}
+}
+totaldf <- rbind(totaldf, df)
+#}
+
+colnames(totaldf) = c("index", "team", "game", "gp", 
+                         "shots", "sat_for", "sat_against", "sat",
+                         "sat_tied", "sat_ahead", "sat_behind", "sat_close" , "usat_for", "usat_agst", "usat", "usat_tied", "usat_ahead", "usat_behind", "usat_close")
+
+Shots_Data <- totaldf
+
+
+#close the browser
+remDr$close()
+rD$server$stop()
+rm(rD, remDr)
+gc()
+
+#free the port
+system("taskkill /im java.exe /f", intern=FALSE, ignore.stdout=FALSE)
+```
+
+```{r}
+save(Shots_Data, file = "Shots_Data.RData")
+```
+
+```{r}
+
+#Goals
+
+port <-4590L #update if needed may error if not cleared
+
+season <- c("20242025")
+#seasonrange <- c("20142015", "20152016", "20162017", "20172018", "20182019", "20192020", "20202021", "20212022", "20222023", "20232024")
+
+df <- data.frame()
+totaldf <- data.frame()
+
+colnum <- 23 #for pp
+
+
+rD <- rsDriver(browser="firefox", port=port, verbose=F, chromever = NULL)
+
+remDr = rD[['client']]
+
+#for (season in seasonrange) {
+ 
+   urlgoals <- paste("https://www.nhl.com/stats/teams?aggregate=0&report=goalsbyperiod&reportType=game&seasonFrom=" ,season, "&seasonTo=", season, "&dateFromSeason&gameType=2&sort=gameDate&page=0&pageSize=100", sep = "")
+
+
+
+
+remDr$navigate(urlgoals) #this will open a chrome window (that means it is working)
+
+
+Sys.sleep(7)
+
+df <- data.frame()
+
+src = remDr$getPageSource()[[1]] #we are just selecting everything for now
+
+#get the number of pages that need to be looped through
+PageNumbersScrp = read_html(src) %>% 
+  html_elements(".ioWkBh") %>% 
+  html_text()
+
+
+#looks complicated, but is how we get the number from the list
+PageNumbers <- strsplit(PageNumbersScrp[1], ' ')[[1]][3]
+
+PageNumbers <- as.integer(PageNumbers) #convert to a number
+
+
+
+## read in the info from the first table
+df = read_html(src) %>% 
+  xml_nodes(xpath='//*[contains(concat( " ", @class, " " ), concat( " ", "rt-td", " " ))]') %>%
+  xml_text() %>%
+  matrix(.,ncol=colnum, byrow = T) %>%
+  data.frame(.,stringsAsFactors = F)
+
+#if there is only 1 page, skip loop
+if (PageNumbers != 1) {
+
+for (i in 2:PageNumbers) {
+  webElem <- remDr$findElement("css", ".fFqRwM")
+webElem$sendKeysToElement(list(key = "end")) #scroll to bottom. need button to be on page
+  Sys.sleep(5)
+  
+  pages = remDr$findElement(using = "css selector",".fFqRwM") #we are selecting the next button
+  pages$clickElement()  
+  
+  
+  ## wait 3 seconds to load (can reduce this)
+  Sys.sleep(5)
+  
+  src = remDr$getPageSource()[[1]]
+  temp = read_html(src) %>% 
+    xml_nodes(xpath='//*[contains(concat( " ", @class, " " ), concat( " ", "rt-td", " " ))]') %>%
+    xml_text() %>%
+    matrix(., ncol=colnum, byrow = T) %>%
+    data.frame(., stringsAsFactors = F)
+  
+  ## bind new data
+  df = df %>% bind_rows(temp)
+  
+  
+  
+}
+}
+totaldf <- rbind(totaldf, df)
+#}
+
+colnames(totaldf) = c("index", "team", "game", "gp", 
+                         "w", "l", "t", "ot", "p", "p%", "ev_gf", "pp_gf", "sh_gf", "gf", "gf_in_p1", "gf_in_p2", "gf_in_p3", "gf_in_ot", "ga", "ga_in_p1", "ga_in_p2", "ga_in_p3", "ga_in_ot")
+
+Goals_Data <- totaldf
+
+
+#close the browser
+remDr$close()
+rD$server$stop()
+rm(rD, remDr)
+gc()
+
+#free the port
+system("taskkill /im java.exe /f", intern=FALSE, ignore.stdout=FALSE)
+```
+
+```{r}
+save(Goals_Data, file = "Goals_Data.RData")
+```
+
+```{r}
+
+#Misc
+
+port <-4590L #update if needed may error if not cleared
+
+
+season <- c("20242025")
+#seasonrange <- c("20142015", "20152016", "20162017", "20172018", "20182019", "20192020", "20202021", "20212022", "20222023", "20232024")
+
+df <- data.frame()
+totaldf <- data.frame()
+
+colnum <- 16 #for pp
+
+
+rD <- rsDriver(browser="firefox", port=port, verbose=F, chromever = NULL)
+
+remDr = rD[['client']]
+
+#for (season in seasonrange) {
+ 
+   urlmisc <- paste("https://www.nhl.com/stats/teams?aggregate=0&report=realtime&reportType=game&seasonFrom=" ,season, "&seasonTo=", season, "&dateFromSeason&gameType=2&sort=gameDate&page=0&pageSize=100", sep = "")
+
+
+
+remDr$navigate(urlmisc) #this will open a chrome window (that means it is working)
+
+
+Sys.sleep(7)
+
+df <- data.frame()
+
+src = remDr$getPageSource()[[1]] #we are just selecting everything for now
+
+#get the number of pages that need to be looped through
+PageNumbersScrp = read_html(src) %>% 
+  html_elements(".ioWkBh") %>% 
+  html_text()
+
+
+#looks complicated, but is how we get the number from the list
+PageNumbers <- strsplit(PageNumbersScrp[1], ' ')[[1]][3]
+
+PageNumbers <- as.integer(PageNumbers) #convert to a number
+
+
+
+## read in the info from the first table
+df = read_html(src) %>% 
+  xml_nodes(xpath='//*[contains(concat( " ", @class, " " ), concat( " ", "rt-td", " " ))]') %>%
+  xml_text() %>%
+  matrix(.,ncol=colnum, byrow = T) %>%
+  data.frame(.,stringsAsFactors = F)
+
+#if there is only 1 page, skip loop
+if (PageNumbers != 1) {
+
+for (i in 2:PageNumbers) {
+  webElem <- remDr$findElement("css", ".fFqRwM")
+webElem$sendKeysToElement(list(key = "end")) #scroll to bottom. need button to be on page
+  Sys.sleep(5)
+  
+  pages = remDr$findElement(using = "css selector",".fFqRwM") #we are selecting the next button
+  pages$clickElement()  
+  
+  
+  ## wait 3 seconds to load (can reduce this)
+  Sys.sleep(5)
+  
+  src = remDr$getPageSource()[[1]]
+  temp = read_html(src) %>% 
+    xml_nodes(xpath='//*[contains(concat( " ", @class, " " ), concat( " ", "rt-td", " " ))]') %>%
+    xml_text() %>%
+    matrix(., ncol=colnum, byrow = T) %>%
+    data.frame(., stringsAsFactors = F)
+  
+  ## bind new data
+  df = df %>% bind_rows(temp)
+  
+  
+  
+}
+}
+totaldf <- rbind(totaldf, df)
+#}
+
+colnames(totaldf) = c("index", "team", "game", "gp", 
+                         "5v5 TOI/GP", "SAT%", "Hits", "Hits/60", "Bks", "Bks/60", "GvA", "GvA/60", "TkA", "TkA/60", "ENG", "MsS")
+
+Misc_Data <- totaldf
+
+
+#close the browser
+remDr$close()
+rD$server$stop()
+rm(rD, remDr)
+gc()
+
+#free the port
+system("taskkill /im java.exe /f", intern=FALSE, ignore.stdout=FALSE)
+```
+
+```{r}
+save(Misc_Data, file = "Misc_Data.RData")
+```
+
+
+
+
+
+

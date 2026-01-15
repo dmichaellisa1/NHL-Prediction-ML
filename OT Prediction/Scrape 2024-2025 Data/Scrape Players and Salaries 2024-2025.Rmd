@@ -1,0 +1,228 @@
+
+
+```{r}
+library(rvest)
+library(dplyr)
+library(stringr)
+```
+
+```{r}
+
+Players_Total_20242025 <- data.frame()
+
+for (i in 1:1312) {
+  
+  gamenumber <- formatC(i, width = 4, format = "d", flag = "0")
+  
+  url <- paste("https://www.nhl.com/scores/htmlreports/20242025/RO02", gamenumber, ".HTM", sep = "")
+  
+  GameRead <- read_html(url)
+
+Game_Date <- GameRead %>% 
+  html_elements("#GameInfo tr:nth-child(4) td") %>% 
+  html_text()
+
+Team_Away <- GameRead %>% 
+  html_elements(".\\+.border:nth-child(1)") %>% 
+  html_text()
+
+Team_Home <- GameRead %>% 
+  html_elements(".border+ .\\+.border") %>% 
+  html_text()
+
+Players_Away <- GameRead %>% 
+  html_elements(".tablewidth .tablewidth tr:nth-child(1) .border:nth-child(1) tr+ tr td~ td+ td") %>% 
+  html_text()
+
+Players_Home <- GameRead %>% 
+  html_elements(".tablewidth .tablewidth tr:nth-child(1) .border+ .border tr+ tr td~ td+ td") %>% 
+  html_text()
+  
+
+player_df_away <- data.frame(Game_Date, Team_Away, Team_Home, Team_Member = "Away",  Player = Players_Away)
+
+player_df_home <- data.frame(Game_Date, Team_Away, Team_Home, Team_Member = "Home",  Player = Players_Home)
+
+Player_df <- rbind(player_df_away, player_df_home)
+  
+#remove (C) (A)
+Player_df$Player <-gsub("\\s*\\([^\\)]+\\)","",as.character(Player_df$Player))
+
+Player_df$Season <- "2024 - 2025"
+
+Players_Total_20242025 <- rbind(Players_Total_20242025, Player_df)
+
+Sys.sleep(5)
+
+}
+
+save(Players_Total_20242025, file = "Players_Total_20242025.RData")
+```
+
+
+
+```{r}
+load("C:/Users/dmich/Documents/Hockey Prediction/OT Prediction/TotalContracts.RData")
+
+load("Players_Total_20242025.RData")
+```
+
+
+
+```{r}
+TotalContracts %>% filter(Player == "SEBASTIAN AHO 1")
+```
+
+
+
+```{r}
+CurrentSeasonContracts <- TotalContracts %>% filter(SeasonNumber == 2024)
+```
+
+```{r}
+list_of_players <- data.frame(Player = unique(Players_Total_20242025$Player))
+
+JoinedContracts <- left_join(list_of_players, CurrentSeasonContracts, by = join_by("Player" == "Player"))
+```
+
+```{r}
+Contracts_to_Get <- JoinedContracts %>% filter(is.na(CapHitNumber))
+```
+
+
+```{r}
+NewContracts <- data.frame()
+```
+
+
+```{r}
+#Sebastion Aho 1 (The one that didn't play for CAR)
+
+#TotalContracts %>% filter(Player == "SEBASTIAN AHO") #this is the CAR one
+
+#Spotrac
+
+columns= c("Player", "SeasonNumber", "CapHitNumber") 
+ 
+playerrecord = data.frame(matrix(nrow = 7, ncol = length(columns))) 
+ 
+colnames(playerrecord) = columns
+ 
+playerrecord$Player <- "JACK WILLIAMS" 
+
+playerrecord$SeasonNumber <- seq(2024,2030)
+
+playerrecord$CapHitNumber <- c(
+   
+   923750 #2024
+  ,923750 #2025
+  ,0 #2026
+  ,0 #2027
+  ,0 #2028
+  ,0 #2029
+  ,0 #2030
+)
+  
+playerrecord <- playerrecord %>% filter(CapHitNumber != 0)
+
+NewContracts <- rbind(NewContracts, playerrecord)
+```
+
+```{r}
+save(NewContracts, file = "NewContracts.RData")
+```
+
+
+```{r}
+NewTotalContracts <- rbind(CurrentSeasonContracts, NewContracts)
+```
+
+```{r}
+NewJoinedContracts <- left_join(list_of_players, NewTotalContracts, by = join_by("Player" == "Player"))
+
+NewJoinedContracts %>% filter(is.na(CapHitNumber))
+```
+
+```{r}
+NewContracts <- NewContracts %>% mutate(Player = ifelse(Player == "JURAJ SLAFKOVSKÝ
+", "JURAJ SLAFKOVSKÝ", Player))
+
+```
+
+```{r}
+NewContracts <- NewContracts %>% filter(!Player == "DENTON MATEYCHUK")
+
+
+fix <- data.frame(Player = "DENTON MATEYCHUK",
+           SeasonNumber = 2024
+           ,CapHitNumber =918333)
+
+fix2 <- data.frame(Player = "DENTON MATEYCHUK",
+           SeasonNumber = 2025
+           ,CapHitNumber =918333)
+
+NewContracts <- rbind(NewContracts, fix, fix2)
+```
+
+
+```{r}
+NewTotalContracts <- rbind(CurrentSeasonContracts, NewContracts)
+
+NewJoinedContracts <- left_join(list_of_players, NewTotalContracts, by = join_by("Player" == "Player"))
+
+NewJoinedContracts %>% filter(is.na(CapHitNumber))
+```
+
+```{r}
+NewTotalContracts <- rbind(TotalContracts, NewContracts)
+
+save(NewTotalContracts, file = "NewTotalContracts.RData")
+```
+
+```{r}
+TotalPlayers <- Players_Total_20242025 %>% mutate(SeasonNumber = as.numeric(str_extract(Season, "^.{4}")))
+
+TotalPlayers <- TotalPlayers %>% mutate(Player = case_when(
+  `Player` == "SEBASTIAN AHO" & Team_Member == "Away" & Team_Away != "CAROLINA HURRICANES" ~ "SEBASTIAN AHO 1",
+  `Player` == "SEBASTIAN AHO" & Team_Member == "Home" & Team_Home != "CAROLINA HURRICANES" ~ "SEBASTIAN AHO 1",
+  TRUE ~ `Player`
+))
+```
+
+```{r}
+TotalPlayersAndContracts <- left_join(TotalPlayers, NewTotalContracts, by = c("Player" = "Player", "SeasonNumber" = "SeasonNumber"))
+```
+
+
+
+
+
+```{r}
+library(parsedate)
+as.Date(parse_date(TotalPlayersAndContracts$Game_Date[1]))
+
+TotalPlayersAndContracts <- TotalPlayersAndContracts %>% mutate(Date = as.Date(parse_date(Game_Date)))
+
+TotalPlayersAndContracts <- TotalPlayersAndContracts %>% mutate(GameKeyBeta = str_to_title(paste(Team_Away, "@", Team_Home, " ", Date, sep = " ")))
+
+ContractDifferences <- TotalPlayersAndContracts %>% group_by(GameKeyBeta) %>% summarise(
+  AwayContracts = sum(case_when(Team_Member == "Away" ~ CapHitNumber
+                            ,Team_Member == "Home" ~ 0))
+  ,HomeContracts = sum(case_when(Team_Member == "Home" ~ CapHitNumber
+                            ,Team_Member == "Away" ~ 0))) %>% 
+    mutate(ContractDifference = HomeContracts - AwayContracts
+           ,ContractDifference_ABS = abs(ContractDifference))
+
+```
+
+
+
+```{r}
+ContractDifferences_2024 <- ContractDifferences
+
+save(ContractDifferences_2024, file = "ContractDifferences_2024.RData")
+```
+
+
+
+

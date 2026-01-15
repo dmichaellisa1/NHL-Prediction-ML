@@ -1,0 +1,1340 @@
+
+```{r}
+library(RSelenium)
+library(rvest)
+library(dplyr)
+library(xml2)
+library(xgboost)
+library(lubridate)
+library(caret)
+library(stringr)
+library(janitor)
+library(e1071)
+```
+
+```{r}
+load("FO_Data.RData")
+load("Goals_Data.RData")
+load("Shots_Data.RData")
+load("Misc_Data.RData")
+load("PP_Data.RData")
+```
+
+```{r}
+TeamInitlKey <- data.frame(Initl = c("BOS", "COL", "NSH", "LAK", "BUF", "WSH", "CHI", "SJS", "NYR", "PIT", "CAR", "WPG", "CBJ", "FLA", "ARI", "PHI", "ANA", "CGY", "NJD", "MIN", "DAL", "TOR", "MTL", "OTT", "DET", "TBL", "EDM", "VAN", "NYI", "SEA", "STL", "VGK", "UTA")
+                             , Name = c("Boston Bruins" , "Colorado Avalanche","Nashville Predators","Los Angeles Kings","Buffalo Sabres","Washington Capitals","Chicago Blackhawks","San Jose Sharks","New York Rangers" ,"Pittsburgh Penguins","Carolina Hurricanes","Winnipeg Jets","Columbus Blue Jackets", "Florida Panthers","Arizona Coyotes","Philadelphia Flyers","Anaheim Ducks","Calgary Flames","New Jersey Devils","Minnesota Wild", "Dallas Stars","Toronto Maple Leafs","Montréal Canadiens","Ottawa Senators","Detroit Red Wings","Tampa Bay Lightning","Edmonton Oilers","Vancouver Canucks","New York Islanders","Seattle Kraken","St. Louis Blues","Vegas Golden Knights", "Utah Hockey Club"))
+```
+
+```{r}
+#rename file to go with old code
+Goal_Data <- Goals_Data
+SAT_Data <- Shots_Data
+```
+
+```{r}
+
+FO_Data <- FO_Data %>% mutate( Date =  ymd(substr(game, 1, 10))) #extract date
+FO_Data <-  FO_Data %>% mutate( AwayInitl = str_sub(game, start = -3)) #extract away team intl
+FO_Data <- left_join(FO_Data, TeamInitlKey, by = c("AwayInitl" = "Initl")) #get away team name
+
+FO_Data <- FO_Data %>% rename("AwayTeam" = "Name", "HomeTeam" = "team")
+
+FO_Data <- FO_Data %>% mutate(GameKey = paste(AwayTeam, " @ ", HomeTeam, " ", Date))
+
+
+
+SATsAwayTeam <- SAT_Data[grepl("@", SAT_Data$game),]
+SATHomeTeam <- SAT_Data[!grepl("@", SAT_Data$game),]
+
+SATHomeTeam <- SATHomeTeam %>% mutate( Date =  ymd(substr(game, 1, 10))) #extract date
+SATHomeTeam <-  SATHomeTeam %>% mutate( AwayInitl = str_sub(game, start = -3)) #extract away team intl
+SATHomeTeam <- left_join(SATHomeTeam, TeamInitlKey, by = c("AwayInitl" = "Initl")) #get away team name
+
+SATHomeTeam <- SATHomeTeam %>% rename("AwayTeam" = "Name", "HomeTeam" = "team")
+
+SATHomeTeam <- SATHomeTeam %>% mutate(GameKey = paste(AwayTeam, " @ ", HomeTeam, " ", Date))
+
+
+SATsAwayTeam <- SATsAwayTeam %>% mutate( Date =  ymd(substr(game, 1, 10))) #extract date
+SATsAwayTeam <-  SATsAwayTeam %>% mutate( HomeInitl = str_sub(game, start = -3)) #extract home team intl
+SATsAwayTeam <- left_join(SATsAwayTeam, TeamInitlKey, by = c("HomeInitl" = "Initl")) #get home team name
+
+SATsAwayTeam <- SATsAwayTeam %>% rename("HomeTeam" = "Name", "AwayTeam" = "team")
+
+SATsAwayTeam <- SATsAwayTeam %>% mutate(GameKey = paste(AwayTeam, " @ ", HomeTeam, " ", Date))
+
+#just need the shots from away. the origional has against stats for everything else
+SATsAwayTeam <- SATsAwayTeam %>% select(GameKey, shots) %>% rename(away_shots = shots)
+
+SAT_Data <- merge(SATHomeTeam, SATsAwayTeam)
+
+
+GoalsAwayTeam <- Goal_Data[grepl("@", Goal_Data$game),]
+GoalsHomeTeam <- Goal_Data[!grepl("@", Goal_Data$game),]
+
+
+GoalsHomeTeam <- GoalsHomeTeam %>% mutate( Date =  ymd(substr(game, 1, 10))) #extract date
+GoalsHomeTeam <-  GoalsHomeTeam %>% mutate( AwayInitl = str_sub(game, start = -3)) #extract away team intl
+GoalsHomeTeam <- left_join(GoalsHomeTeam, TeamInitlKey, by = c("AwayInitl" = "Initl")) #get away team name
+
+GoalsHomeTeam <- GoalsHomeTeam %>% rename("AwayTeam" = "Name", "HomeTeam" = "team")
+
+GoalsHomeTeam <- GoalsHomeTeam %>% mutate(GameKey = paste(AwayTeam, " @ ", HomeTeam, " ", Date))
+
+
+
+GoalsAwayTeam <- GoalsAwayTeam %>% mutate( Date =  ymd(substr(game, 1, 10))) #extract date
+GoalsAwayTeam <-  GoalsAwayTeam %>% mutate( HomeInitl = str_sub(game, start = -3)) #extract home team intl
+GoalsAwayTeam <- left_join(GoalsAwayTeam, TeamInitlKey, by = c("HomeInitl" = "Initl")) #get home team name
+
+GoalsAwayTeam <- GoalsAwayTeam %>% rename("HomeTeam" = "Name", "AwayTeam" = "team")
+
+GoalsAwayTeam <- GoalsAwayTeam %>% mutate(GameKey = paste(AwayTeam, " @ ", HomeTeam, " ", Date))
+
+colnames(GoalsHomeTeam) <- c(paste("Home ", colnames(GoalsHomeTeam)))
+names(GoalsHomeTeam)[names(GoalsHomeTeam) == 'Home  GameKey'] <- 'GameKey'
+
+colnames(GoalsAwayTeam) <- c(paste("Away ", colnames(GoalsAwayTeam)))
+names(GoalsAwayTeam)[names(GoalsAwayTeam) == 'Away  GameKey'] <- 'GameKey'
+
+
+MiscAwayTeam <- Misc_Data[grepl("@", Misc_Data$game),]
+MiscHomeTeam <- Misc_Data[!grepl("@", Misc_Data$game),]
+
+
+MiscHomeTeam <- MiscHomeTeam %>% mutate( Date =  ymd(substr(game, 1, 10))) #extract date
+MiscHomeTeam <-  MiscHomeTeam %>% mutate( AwayInitl = str_sub(game, start = -3)) #extract away team intl
+MiscHomeTeam <- left_join(MiscHomeTeam, TeamInitlKey, by = c("AwayInitl" = "Initl")) #get away team name
+
+MiscHomeTeam <- MiscHomeTeam %>% rename("AwayTeam" = "Name", "HomeTeam" = "team")
+
+MiscHomeTeam <- MiscHomeTeam %>% mutate(GameKey = paste(AwayTeam, " @ ", HomeTeam, " ", Date))
+
+
+colnames(MiscHomeTeam) <- c(paste("Home ", colnames(MiscHomeTeam)))
+names(MiscHomeTeam)[names(MiscHomeTeam) == 'Home  GameKey'] <- 'GameKey'
+
+
+
+MiscAwayTeam <- MiscAwayTeam %>% mutate( Date =  ymd(substr(game, 1, 10))) #extract date
+MiscAwayTeam <-  MiscAwayTeam %>% mutate( HomeInitl = str_sub(game, start = -3)) #extract home team intl
+MiscAwayTeam <- left_join(MiscAwayTeam, TeamInitlKey, by = c("HomeInitl" = "Initl")) #get home team name
+
+MiscAwayTeam <- MiscAwayTeam %>% rename("HomeTeam" = "Name", "AwayTeam" = "team")
+
+MiscAwayTeam <- MiscAwayTeam %>% mutate(GameKey = paste(AwayTeam, " @ ", HomeTeam, " ", Date))
+
+colnames(MiscAwayTeam) <- c(paste("Away ", colnames(MiscAwayTeam)))
+names(MiscAwayTeam)[names(MiscAwayTeam) == 'Away  GameKey'] <- 'GameKey'
+
+
+PPAwayTeam <- PP_Data[grepl("@", PP_Data$game),]
+PPHomeTeam <- PP_Data[!grepl("@", PP_Data$game),]
+
+
+PPHomeTeam <- PPHomeTeam %>% mutate( Date =  ymd(substr(game, 1, 10))) #extract date
+PPHomeTeam <-  PPHomeTeam %>% mutate( AwayInitl = str_sub(game, start = -3)) #extract away team intl
+PPHomeTeam <- left_join(PPHomeTeam, TeamInitlKey, by = c("AwayInitl" = "Initl")) #get away team name
+
+PPHomeTeam <- PPHomeTeam %>% rename("AwayTeam" = "Name", "HomeTeam" = "team")
+
+PPHomeTeam <- PPHomeTeam %>% mutate(GameKey = paste(AwayTeam, " @ ", HomeTeam, " ", Date))
+
+
+colnames(PPHomeTeam) <- c(paste("Home ", colnames(PPHomeTeam)))
+names(PPHomeTeam)[names(PPHomeTeam) == 'Home  GameKey'] <- 'GameKey'
+
+
+
+PPAwayTeam <- PPAwayTeam %>% mutate( Date =  ymd(substr(game, 1, 10))) #extract date
+PPAwayTeam <-  PPAwayTeam %>% mutate( HomeInitl = str_sub(game, start = -3)) #extract home team intl
+PPAwayTeam <- left_join(PPAwayTeam, TeamInitlKey, by = c("HomeInitl" = "Initl")) #get home team name
+
+PPAwayTeam <- PPAwayTeam %>% rename("HomeTeam" = "Name", "AwayTeam" = "team")
+
+PPAwayTeam <- PPAwayTeam %>% mutate(GameKey = paste(AwayTeam, " @ ", HomeTeam, " ", Date))
+
+colnames(PPAwayTeam) <- c(paste("Away ", colnames(PPAwayTeam)))
+names(PPAwayTeam)[names(PPAwayTeam) == 'Away  GameKey'] <- 'GameKey'
+
+
+GameDataJoined <- merge(FO_Data, SAT_Data, by.x = "GameKey", by.y = "GameKey")
+GameDataJoined <- merge(GameDataJoined, GoalsAwayTeam, by.x = "GameKey", by.y = "GameKey")
+GameDataJoined <- merge(GameDataJoined, GoalsHomeTeam, by.x = "GameKey", by.y = "GameKey")
+GameDataJoined <- merge(GameDataJoined, MiscAwayTeam, by.x = "GameKey", by.y = "GameKey")
+GameDataJoined <- merge(GameDataJoined, MiscHomeTeam, by.x = "GameKey", by.y = "GameKey")
+GameDataJoined <- merge(GameDataJoined, PPAwayTeam, by.x = "GameKey", by.y = "GameKey")
+GameDataJoined <- merge(GameDataJoined, PPHomeTeam, by.x = "GameKey", by.y = "GameKey")
+
+
+
+#remove duplicate columns and unneeded and rename
+GameDataJoined_Cleaned <- GameDataJoined %>% select(-index.x, -index.y, -gp.x, -gp.y, -game.x, -HomeTeam.y, -game.y, -Date.y, -AwayInitl.y, -AwayTeam.y, -`Away  index.x`, -`Away  AwayTeam.x`, -`Away  game.x`, -`Away  gp.x`, -`Away  Date.x`, -`Away  HomeInitl.x`, -`Away  HomeTeam.x`, -`Home  index.x`, -`Home  HomeTeam.x`, -`Home  game.x`, -`Home  gp.x`, -`Home  Date.x`, -`Home  AwayInitl.x`, -`Home  AwayTeam.x`, -`Away  index.y`, -`Away  AwayTeam.y`, -`Away  game.y`, -`Away  gp.y`, -`Away  Date.y`, -`Away  HomeInitl.y`, -`Away  HomeTeam.y`, -`Home  index.y`, -`Home  HomeTeam.y`, -`Home  game.y`, -`Home  gp.y`, -`Home  Date.y`, -`Home  AwayInitl.y`, -`Home  AwayTeam.y`, -`Away  AwayTeam`, -`Away  game`, -`Away  gp`, -`Away  Date`, -`Away  HomeInitl`, -`Away  HomeTeam`, -`Home  index`, -`Home  HomeTeam`, -`Home  game`, -`Home  gp`, -`Home  Date`, -`Home  AwayInitl`, -`Home  AwayTeam`, -`Away  index`) %>% rename(HomeTeam = HomeTeam.x, Date = Date.x, AwayInitl = AwayInitl.x, AwayTeam = AwayTeam.x)
+
+
+```
+
+
+```{r}
+#make season designation
+GameDataJoined_Cleaned <- GameDataJoined_Cleaned %>% mutate(Season = case_when( month(Date) >= 6 ~ paste(year(Date), "-", year(Date) + 1)
+                                                                                ,month(Date) < 6 ~ paste(year(Date) - 1, "-", year(Date))
+))
+
+GameDataJoined_Cleaned <- GameDataJoined_Cleaned %>% arrange(Date)
+
+
+
+#convert number format
+GameDataJoined_Cleaned <- GameDataJoined_Cleaned %>%
+    mutate_at(vars(c(3:24, 28:81, 83:93, 95:115, 117:132, 134:139)),list(~as.numeric(str_replace_all(.,'--','0'))))
+
+#convert TOI to seconds from mm:ss
+GameDataJoined_Cleaned <- GameDataJoined_Cleaned %>% mutate(`Away  5v5 TOI/GP` = period_to_seconds(ms(`Away  5v5 TOI/GP`))
+                                  ,`Home  5v5 TOI/GP` = period_to_seconds(ms(`Home  5v5 TOI/GP`))
+                                  ,`Away  PP TOI/GP`  = period_to_seconds(ms(`Away  PP TOI/GP`))
+                                  ,`Home  PP TOI/GP` = period_to_seconds(ms(`Home  PP TOI/GP`))) %>% 
+  rename("Away 5v5 TOI" = `Away  5v5 TOI/GP`, "Home 5v5 TOI" = `Home  5v5 TOI/GP`,  "Away PP TOI"= `Away  PP TOI/GP`, "Home PP TOI" = `Home  PP TOI/GP`)
+
+```
+
+```{r}
+#make a loop to go through each team and season and extract game data for that team
+
+TeamGameStats <- data.frame()
+
+for (team in TeamInitlKey$Name) {
+  
+  for (season in unique(GameDataJoined_Cleaned$Season)) {
+    
+   teamseason <- GameDataJoined_Cleaned %>% filter(Season == season) %>% filter(HomeTeam == team | AwayTeam == team)
+   
+   teamseason <- teamseason %>% mutate(GameNumber = row_number(), FocusTeam = team) %>% relocate(FocusTeam, GameNumber)
+    
+   #Adjust stats to be relative to focus team
+   teamseason_adj <- data.frame(matrix(NA, nrow = nrow(teamseason), ncol = 0))
+   teamseason_adj <- teamseason_adj %>% mutate(FocusTeam = c(teamseason$FocusTeam)
+                                               ,Season = season
+                                               , GameNumber = teamseason$GameNumber
+                                               , GameKey = teamseason$GameKey
+                                               , Date = teamseason$Date
+                                               #identify if team is home or away
+                                               , AwayOrHome = case_when(teamseason$FocusTeam == teamseason$HomeTeam ~ "Home",
+                                                                        teamseason$FocusTeam == teamseason$AwayTeam ~ "Away"))
+   
+   #identify individual stats
+   teamseason_adj <- teamseason_adj %>% mutate( 
+                               #Faceoff Stats
+                               fo = teamseason$fo
+                             , fow = case_when(AwayOrHome == "Home" ~ teamseason$fow,
+                                               AwayOrHome == "Away" ~ teamseason$fol)
+                             , fol = case_when(AwayOrHome == "Home" ~ teamseason$fol,
+                                               AwayOrHome == "Away" ~ teamseason$fow)
+                             , "fow%" = round( (fow/fo) * 100 ,1 )
+                             , ev_fo = teamseason$ev_fo
+                             , ev_fow = case_when(AwayOrHome == "Home" ~ teamseason$ev_fow,
+                                               AwayOrHome == "Away" ~ teamseason$ev_fol)
+                             , ev_fol = case_when(AwayOrHome == "Home" ~ teamseason$ev_fol,
+                                               AwayOrHome == "Away" ~ teamseason$ev_fow)
+                             , pp_fo = case_when(AwayOrHome == "Home" ~ teamseason$pp_fo,
+                                               AwayOrHome == "Away" ~ teamseason$sh_fo)
+                             , pp_fow = case_when(AwayOrHome == "Home" ~ teamseason$pp_fow,
+                                               AwayOrHome == "Away" ~ teamseason$sh_fol)
+                             , pp_fol = case_when(AwayOrHome == "Home" ~ teamseason$pp_fol,
+                                               AwayOrHome == "Away" ~ teamseason$sh_fow)
+                             , sh_fo = case_when(AwayOrHome == "Home" ~ teamseason$sh_fo,
+                                               AwayOrHome == "Away" ~ teamseason$pp_fo)
+                             , sh_fow = case_when(AwayOrHome == "Home" ~ teamseason$sh_fow,
+                                               AwayOrHome == "Away" ~ teamseason$pp_fol)
+                             , sh_fol = case_when(AwayOrHome == "Home" ~ teamseason$sh_fol,
+                                               AwayOrHome == "Away" ~ teamseason$pp_fow)
+                             , oz_fo = case_when(AwayOrHome == "Home" ~ teamseason$oz_fo,
+                                               AwayOrHome == "Away" ~ teamseason$dz_fo)
+                             , oz_fow = case_when(AwayOrHome == "Home" ~ teamseason$oz_fow,
+                                               AwayOrHome == "Away" ~ teamseason$dz_fol)
+                             , oz_fol = case_when(AwayOrHome == "Home" ~ teamseason$oz_fol,
+                                               AwayOrHome == "Away" ~ teamseason$dz_fow)
+                             , nz_fo = teamseason$nz_fo
+                             , nz_fow = case_when(AwayOrHome == "Home" ~ teamseason$nz_fow,
+                                               AwayOrHome == "Away" ~ teamseason$nz_fol)
+                             , nz_fol = case_when(AwayOrHome == "Home" ~ teamseason$nz_fol,
+                                               AwayOrHome == "Away" ~ teamseason$nz_fow)
+                             , dz_fo = case_when(AwayOrHome == "Home" ~ teamseason$dz_fo,
+                                               AwayOrHome == "Away" ~ teamseason$oz_fo)
+                             , dz_fow = case_when(AwayOrHome == "Home" ~ teamseason$dz_fow,
+                                               AwayOrHome == "Away" ~ teamseason$oz_fol)
+                             , dz_fol = case_when(AwayOrHome == "Home" ~ teamseason$dz_fol,
+                                               AwayOrHome == "Away" ~ teamseason$oz_fow)
+                             #Shot Stats
+                             ,shots = case_when(AwayOrHome == "Home" ~ teamseason$shots,
+                                               AwayOrHome == "Away" ~ teamseason$away_shots)
+                             ,shots_against = case_when(AwayOrHome == "Home" ~ teamseason$away_shots,
+                                               AwayOrHome == "Away" ~ teamseason$shots)
+                             ,sat_for = case_when(AwayOrHome == "Home" ~ teamseason$sat_for,
+                                               AwayOrHome == "Away" ~ teamseason$sat_against)
+                             ,sat_against = case_when(AwayOrHome == "Home" ~ teamseason$sat_against,
+                                               AwayOrHome == "Away" ~ teamseason$sat_for)
+                             ,sat = sat_for - sat_against 
+                             ,sat_tied = case_when(AwayOrHome == "Home" ~ teamseason$sat_tied,
+                                               AwayOrHome == "Away" ~ -teamseason$sat_tied)
+                             ,sat_ahead = case_when(AwayOrHome == "Home" ~ teamseason$sat_ahead,
+                                               AwayOrHome == "Away" ~ -teamseason$sat_behind)
+                             ,sat_behind = case_when(AwayOrHome == "Home" ~ teamseason$sat_behind,
+                                               AwayOrHome == "Away" ~ -teamseason$sat_ahead)
+                             ,sat_close = case_when(AwayOrHome == "Home" ~ teamseason$sat_close,
+                                               AwayOrHome == "Away" ~ -teamseason$sat_close)
+                             ,usat_for = case_when(AwayOrHome == "Home" ~ teamseason$usat_for,
+                                               AwayOrHome == "Away" ~ teamseason$usat_agst)
+                             ,usat_agst = case_when(AwayOrHome == "Home" ~ teamseason$usat_agst,
+                                               AwayOrHome == "Away" ~ teamseason$usat_for)
+                             ,usat = usat_for - usat_agst
+                             ,usat_tied = case_when(AwayOrHome == "Home" ~ teamseason$usat_tied,
+                                               AwayOrHome == "Away" ~ -teamseason$usat_tied)
+                             ,usat_ahead = case_when(AwayOrHome == "Home" ~ teamseason$usat_ahead,
+                                               AwayOrHome == "Away" ~ -teamseason$usat_behind)
+                             ,usat_behind = case_when(AwayOrHome == "Home" ~ teamseason$usat_behind,
+                                               AwayOrHome == "Away" ~ -teamseason$usat_ahead)
+                             ,usat_close = case_when(AwayOrHome == "Home" ~ teamseason$usat_close,
+                                               AwayOrHome == "Away" ~ -teamseason$usat_close)
+                             #Goal Stats
+                             ,gf = case_when(AwayOrHome == "Home" ~ teamseason$`Home  gf`,
+                                               AwayOrHome == "Away" ~ teamseason$`Away  gf`)
+                             ,ga = case_when(AwayOrHome == "Home" ~ teamseason$`Away  gf`,
+                                               AwayOrHome == "Away" ~ teamseason$`Home  gf`)
+                             ,ev_gf = case_when(AwayOrHome == "Home" ~ teamseason$`Home  ev_gf`,
+                                               AwayOrHome == "Away" ~ teamseason$`Away  ev_gf`)
+                             ,ev_ga = case_when(AwayOrHome == "Home" ~ teamseason$`Away  ev_gf`,
+                                               AwayOrHome == "Away" ~ teamseason$`Home  ev_gf`)
+                             ,pp_gf = case_when(AwayOrHome == "Home" ~ teamseason$`Home  pp_gf`,
+                                               AwayOrHome == "Away" ~ teamseason$`Away  pp_gf`)
+                             ,pp_ga = case_when(AwayOrHome == "Home" ~ teamseason$`Away  pp_gf`,
+                                               AwayOrHome == "Away" ~ teamseason$`Home  pp_gf`)
+                             ,sh_gf = case_when(AwayOrHome == "Home" ~ teamseason$`Home  sh_gf`,
+                                               AwayOrHome == "Away" ~ teamseason$`Away  sh_gf`)
+                             ,sh_ga = case_when(AwayOrHome == "Home" ~ teamseason$`Away  sh_gf`,
+                                               AwayOrHome == "Away" ~ teamseason$`Home  sh_gf`)
+                             ,gf_in_p1 = case_when(AwayOrHome == "Home" ~ teamseason$`Home  gf_in_p1`,
+                                               AwayOrHome == "Away" ~ teamseason$`Away  gf_in_p1`)
+                             ,ga_in_p1 = case_when(AwayOrHome == "Home" ~ teamseason$`Away  gf_in_p1`,
+                                               AwayOrHome == "Away" ~ teamseason$`Home  gf_in_p1`)
+                             ,gf_in_p2 = case_when(AwayOrHome == "Home" ~ teamseason$`Home  gf_in_p2`,
+                                               AwayOrHome == "Away" ~ teamseason$`Away  gf_in_p2`)
+                             ,ga_in_p2 = case_when(AwayOrHome == "Home" ~ teamseason$`Away  gf_in_p2`,
+                                               AwayOrHome == "Away" ~ teamseason$`Home  gf_in_p2`)
+                             ,gf_in_p3 = case_when(AwayOrHome == "Home" ~ teamseason$`Home  gf_in_p3`,
+                                               AwayOrHome == "Away" ~ teamseason$`Away  gf_in_p3`)
+                             ,ga_in_p3 = case_when(AwayOrHome == "Home" ~ teamseason$`Away  gf_in_p3`,
+                                               AwayOrHome == "Away" ~ teamseason$`Home  gf_in_p3`)
+                             ,gf_in_ot = case_when(AwayOrHome == "Home" ~ teamseason$`Home  gf_in_ot`,
+                                               AwayOrHome == "Away" ~ teamseason$`Away  gf_in_ot`)
+                             ,ga_in_ot = case_when(AwayOrHome == "Home" ~ teamseason$`Away  gf_in_ot`,
+                                               AwayOrHome == "Away" ~ teamseason$`Home  gf_in_ot`)
+                             #Misc Stats
+                             ,`5v5_TOI` = case_when(AwayOrHome == "Home" ~ teamseason$`Home 5v5 TOI`,
+                                               AwayOrHome == "Away" ~ teamseason$`Away 5v5 TOI`)
+                             ,hits_for = case_when(AwayOrHome == "Home" ~ teamseason$`Home  Hits`,
+                                               AwayOrHome == "Away" ~ teamseason$`Away  Hits`)
+                             ,hits_agst = case_when(AwayOrHome == "Home" ~ teamseason$`Away  Hits`,
+                                               AwayOrHome == "Away" ~ teamseason$`Home  Hits`)
+                             ,blks_for = case_when(AwayOrHome == "Home" ~ teamseason$`Home  Bks`,
+                                               AwayOrHome == "Away" ~ teamseason$`Away  Bks`)
+                             ,blks_agst = case_when(AwayOrHome == "Home" ~ teamseason$`Away  Bks`,
+                                               AwayOrHome == "Away" ~ teamseason$`Home  Bks`)
+                             ,GvA = case_when(AwayOrHome == "Home" ~ teamseason$`Home  GvA`,
+                                               AwayOrHome == "Away" ~ teamseason$`Away  GvA`)
+                             ,GvA_opp = case_when(AwayOrHome == "Home" ~ teamseason$`Away  GvA`,
+                                               AwayOrHome == "Away" ~ teamseason$`Home  GvA`)
+                             ,TkA = case_when(AwayOrHome == "Home" ~ teamseason$`Home  TkA`,
+                                               AwayOrHome == "Away" ~ teamseason$`Away  TkA`)
+                             ,TkA_opp = case_when(AwayOrHome == "Home" ~ teamseason$`Away  TkA`,
+                                               AwayOrHome == "Away" ~ teamseason$`Home  TkA`)
+                             ,ENG = case_when(AwayOrHome == "Home" ~ teamseason$`Home  ENG`,
+                                               AwayOrHome == "Away" ~ teamseason$`Away  ENG`)
+                             ,ENG_opp = case_when(AwayOrHome == "Home" ~ teamseason$`Away  ENG`,
+                                               AwayOrHome == "Away" ~ teamseason$`Home  ENG`)
+                             ,MsS = case_when(AwayOrHome == "Home" ~ teamseason$`Home  MsS`,
+                                               AwayOrHome == "Away" ~ teamseason$`Away  MsS`)
+                             ,MsS_opp = case_when(AwayOrHome == "Home" ~ teamseason$`Away  MsS`,
+                                               AwayOrHome == "Away" ~ teamseason$`Home  MsS`)
+                             #PP stats
+                             ,PP_Opp = case_when(AwayOrHome == "Home" ~ teamseason$`Home  PP Opp`,
+                                               AwayOrHome == "Away" ~ teamseason$`Away  PP Opp`)
+                             ,PP_Opp_Agnst = case_when(AwayOrHome == "Home" ~ teamseason$`Away  PP Opp`,
+                                               AwayOrHome == "Away" ~ teamseason$`Home  PP Opp`)  
+                             ,`PP%` = case_when(AwayOrHome == "Home" ~ teamseason$`Home  PP%`,
+                                               AwayOrHome == "Away" ~ teamseason$`Away  PP%`)
+                             ,`PP%_opp` = case_when(AwayOrHome == "Home" ~ teamseason$`Away  PP%`,
+                                               AwayOrHome == "Away" ~ teamseason$`Home  PP%`)
+                             #General/Computed stats
+                             ,W = case_when(AwayOrHome == "Home" ~ teamseason$`Home  w`,
+                                               AwayOrHome == "Away" ~ teamseason$`Away  w`)
+                             ,L = case_when(AwayOrHome == "Home" ~ teamseason$`Home  l`,
+                                               AwayOrHome == "Away" ~ teamseason$`Away  l`)
+                             ,OT = case_when(AwayOrHome == "Home" ~ teamseason$`Home  ot`,
+                                               AwayOrHome == "Away" ~ teamseason$`Away  ot`)
+                             ,`SO` = if_else(gf == ga, 1,0) 
+                             ,OT_win = case_when(AwayOrHome == "Home" ~ teamseason$`Away  ot`,
+                                               AwayOrHome == "Away" ~ teamseason$`Home  ot`)
+                             ,Total_Goals = gf + ga + SO
+                    
+                             )
+                            
+   TeamGameStats <- rbind(TeamGameStats, teamseason_adj)
+  
+  
+   
+   }
+}
+
+
+#PredictionData <- OddsWithTeamNames %>% select(HomeName,AwayName) %>% 
+#  rename(HomeTeam = HomeName, AwayTeam = AwayName) %>% mutate(
+#                                               Date = as.Date(gameDate)
+#                                               ,Season = SeasonInput
+#                                               ,GameKey = paste(AwayTeam, "@", HomeTeam, Date, sep = " ")) %>% 
+#  select(GameKey, Date, HomeTeam, AwayTeam, Season) #%>% 
+  #mutate(HomeGameNumber = max(TeamGameStats[,FocusTeam == HomeTeam]$GameNumber) +1 )
+
+
+PredictionData <- GameDataJoined_Cleaned %>% select(GameKey, Date, HomeTeam, AwayTeam, Season) %>% merge(
+  TeamGameStats %>% select(FocusTeam, GameNumber, GameKey, W),
+  by.x = c("GameKey", "HomeTeam"), by.y = c("GameKey", "FocusTeam")) %>% 
+  rename(HomeGameNumber = GameNumber, HomeTeamWin = W) %>% 
+  merge(
+  TeamGameStats %>% select(FocusTeam, GameNumber, GameKey, Total_Goals),
+  by.x = c("GameKey", "AwayTeam"), by.y = c("GameKey", "FocusTeam")) %>% 
+  rename(AwayGameNumber = GameNumber) %>% 
+  arrange(Date)
+
+PredictionData <- PredictionData %>% select(GameKey, Date, HomeTeam, AwayTeam, Season, HomeGameNumber, AwayGameNumber, HomeTeamWin, Total_Goals)
+
+#not predicting for first 5 games of season. Use those to get grouped stats
+PredictionData <- PredictionData %>% filter(HomeGameNumber > 5 & AwayGameNumber > 5)
+
+
+
+
+TotalPredictionData <- data.frame()
+
+for (i in 1:nrow(PredictionData)) {
+ 
+  HomePastStats <-  data.frame(matrix(NA, nrow = 1, ncol = 0))
+  AwayPastStats <-  data.frame(matrix(NA, nrow = 1, ncol = 0))
+  HomePastStats_last5 <-  data.frame(matrix(NA, nrow = 1, ncol = 0))
+  AwayPastStats_last5 <-  data.frame(matrix(NA, nrow = 1, ncol = 0))
+   
+  selectedgame <- PredictionData[i,]
+  
+  HomeGamesToSum <- TeamGameStats %>% filter(FocusTeam == selectedgame$HomeTeam
+                                             #, GameNumber < selectedgame$HomeGameNumber
+                                             , Season == selectedgame$Season)
+  
+  AwayGamesToSum <- TeamGameStats %>% filter(FocusTeam == selectedgame$AwayTeam
+                                             #, GameNumber < selectedgame$AwayGameNumber
+                                             , Season == selectedgame$Season)
+ 
+  #Calculate Home Past Performance 
+  HomePastStats <- HomePastStats %>% mutate(
+    HomeGameNumber = max(HomeGamesToSum$GameNumber) + 1
+    ,AwayGameNumber = max(AwayGamesToSum$GameNumber) + 1
+    ,HomeTeamWin = 0 #dummy
+    ,Total_Goals = 0 #dummy #these first 4 are dummies for placement correctness
+    ,home_fo_avg = sum(HomeGamesToSum$fo)/ nrow(HomeGamesToSum)
+    ,home_fow_avg = sum(HomeGamesToSum$fow)/ nrow(HomeGamesToSum)
+    ,home_fol_avg = sum(HomeGamesToSum$fol)/ nrow(HomeGamesToSum)
+    ,`home_fow%` = sum(HomeGamesToSum$fow)/sum(HomeGamesToSum$fo)
+    ,home_ev_fo_avg = sum(HomeGamesToSum$ev_fo)/ nrow(HomeGamesToSum)
+    ,home_ev_fow_avg = sum(HomeGamesToSum$ev_fow)/ nrow(HomeGamesToSum)
+    ,home_ev_fol_avg = sum(HomeGamesToSum$ev_fol)/ nrow(HomeGamesToSum)
+    ,`home_ev_fow%` = sum(HomeGamesToSum$ev_fow)/sum(HomeGamesToSum$ev_fo)
+    ,home_pp_fo_avg = sum(HomeGamesToSum$pp_fo)/ nrow(HomeGamesToSum)
+    ,home_pp_fow_avg = sum(HomeGamesToSum$pp_fow)/ nrow(HomeGamesToSum)
+    ,home_pp_fol_avg = sum(HomeGamesToSum$pp_fol)/ nrow(HomeGamesToSum)
+    ,`home_pp_fow%` = sum(HomeGamesToSum$pp_fow)/sum(HomeGamesToSum$pp_fo)
+    ,home_sh_fo_avg = sum(HomeGamesToSum$sh_fo)/ nrow(HomeGamesToSum)
+    ,home_sh_fow_avg = sum(HomeGamesToSum$sh_fow)/ nrow(HomeGamesToSum)
+    ,home_sh_fol_avg = sum(HomeGamesToSum$sh_fol)/ nrow(HomeGamesToSum)
+    ,`home_sh_fow%` = sum(HomeGamesToSum$sh_fow)/sum(HomeGamesToSum$sh_fo)
+    ,home_oz_fo_avg = sum(HomeGamesToSum$oz_fo)/ nrow(HomeGamesToSum)
+    ,home_oz_fow_avg = sum(HomeGamesToSum$oz_fow)/ nrow(HomeGamesToSum)
+    ,home_oz_fol_avg = sum(HomeGamesToSum$oz_fol)/ nrow(HomeGamesToSum)
+    ,`home_oz_fow%` = sum(HomeGamesToSum$oz_fow)/sum(HomeGamesToSum$oz_fo)
+    ,home_nz_fo_avg = sum(HomeGamesToSum$nz_fo)/ nrow(HomeGamesToSum)
+    ,home_nz_fow_avg = sum(HomeGamesToSum$nz_fow)/ nrow(HomeGamesToSum)
+    ,home_nz_fol_avg = sum(HomeGamesToSum$nz_fol)/ nrow(HomeGamesToSum)
+    ,`home_nz_fow%` = sum(HomeGamesToSum$nz_fow)/sum(HomeGamesToSum$nz_fo)
+    ,home_dz_fo_avg = sum(HomeGamesToSum$dz_fo)/ nrow(HomeGamesToSum)
+    ,home_dz_fow_avg = sum(HomeGamesToSum$dz_fow)/ nrow(HomeGamesToSum)
+    ,home_dz_fol_avg = sum(HomeGamesToSum$dz_fol)/ nrow(HomeGamesToSum)
+    ,`home_dz_fow%` = sum(HomeGamesToSum$dz_fow)/sum(HomeGamesToSum$dz_fo)
+    ,home_shots_avg = sum(HomeGamesToSum$shots)/nrow(HomeGamesToSum)
+    ,home_shots_against_avg = sum(HomeGamesToSum$shots_against)/nrow(HomeGamesToSum)
+    ,home_sat_for_avg = sum(HomeGamesToSum$sat_for)/nrow(HomeGamesToSum)
+    ,home_sat_against_avg = sum(HomeGamesToSum$sat_against)/nrow(HomeGamesToSum)
+    ,home_sat_avg = sum(HomeGamesToSum$sat)/nrow(HomeGamesToSum)
+    ,home_sat_total = sum(HomeGamesToSum$sat)
+    ,home_sat_tied_avg = sum(HomeGamesToSum$sat_tied)/nrow(HomeGamesToSum)
+    ,home_sat_tied_total = sum(HomeGamesToSum$sat_tied)
+    ,home_sat_ahead_avg = sum(HomeGamesToSum$sat_ahead)/nrow(HomeGamesToSum)
+    ,home_sat_ahead_total = sum(HomeGamesToSum$sat_ahead)
+    ,home_sat_behind_avg = sum(HomeGamesToSum$sat_behind)/nrow(HomeGamesToSum)
+    ,home_sat_behind_total = sum(HomeGamesToSum$sat_behind)
+    ,home_sat_close_avg = sum(HomeGamesToSum$sat_close)/nrow(HomeGamesToSum)
+    ,home_sat_close_total = sum(HomeGamesToSum$sat_close)
+    ,home_usat_for_avg = sum(HomeGamesToSum$usat_for)/nrow(HomeGamesToSum)
+    ,home_usat_against_avg = sum(HomeGamesToSum$usat_agst)/nrow(HomeGamesToSum)
+    ,home_usat_avg = sum(HomeGamesToSum$usat)/nrow(HomeGamesToSum)
+    ,home_usat_total = sum(HomeGamesToSum$usat)
+    ,home_usat_tied_avg = sum(HomeGamesToSum$usat_tied)/nrow(HomeGamesToSum)
+    ,home_usat_tied_total = sum(HomeGamesToSum$usat_tied)
+    ,home_usat_ahead_avg = sum(HomeGamesToSum$usat_ahead)/nrow(HomeGamesToSum)
+    ,home_usat_ahead_total = sum(HomeGamesToSum$usat_ahead)
+    ,home_usat_behind_avg = sum(HomeGamesToSum$usat_behind)/nrow(HomeGamesToSum)
+    ,home_usat_behind_total = sum(HomeGamesToSum$usat_behind)
+    ,home_usat_close_avg = sum(HomeGamesToSum$usat_close)/nrow(HomeGamesToSum)
+    ,home_usat_close_total = sum(HomeGamesToSum$usat_close)
+    ,home_gf_avg = sum(HomeGamesToSum$gf)/nrow(HomeGamesToSum)
+    ,home_ga_avg = sum(HomeGamesToSum$ga)/nrow(HomeGamesToSum)
+    ,home_goal_diff_avg = sum(HomeGamesToSum$gf - HomeGamesToSum$ga) / nrow(HomeGamesToSum)
+    ,home_goal_diff_total = sum(HomeGamesToSum$gf - HomeGamesToSum$ga)
+    ,home_ev_gf_avg = sum(HomeGamesToSum$ev_gf)/nrow(HomeGamesToSum)
+    ,home_ev_ga_avg = sum(HomeGamesToSum$ev_ga)/nrow(HomeGamesToSum)
+    ,home_ev_goal_diff_avg = sum(HomeGamesToSum$ev_gf - HomeGamesToSum$ev_ga) / nrow(HomeGamesToSum)
+    ,home_ev_goal_diff_total = sum(HomeGamesToSum$ev_gf - HomeGamesToSum$ev_ga)
+    ,home_pp_gf_avg = sum(HomeGamesToSum$pp_gf)/nrow(HomeGamesToSum)
+    ,home_pp_ga_avg = sum(HomeGamesToSum$pp_ga)/nrow(HomeGamesToSum)
+    ,home_pp_goal_diff_avg = sum(HomeGamesToSum$pp_gf - HomeGamesToSum$pp_ga) / nrow(HomeGamesToSum)
+    ,home_pp_goal_diff_total = sum(HomeGamesToSum$pp_gf - HomeGamesToSum$pp_ga)
+    ,home_sh_gf_avg = sum(HomeGamesToSum$sh_gf)/nrow(HomeGamesToSum)
+    ,home_sh_ga_avg = sum(HomeGamesToSum$sh_ga)/nrow(HomeGamesToSum)
+    ,home_sh_goal_diff_avg = sum(HomeGamesToSum$sh_gf - HomeGamesToSum$sh_ga) / nrow(HomeGamesToSum)
+    ,home_sh_goal_diff_total = sum(HomeGamesToSum$sh_gf - HomeGamesToSum$sh_ga)
+    ,home_gf_in_p1_avg = sum(HomeGamesToSum$gf_in_p1)/nrow(HomeGamesToSum)
+    ,home_ga_in_p1_avg = sum(HomeGamesToSum$ga_in_p1)/nrow(HomeGamesToSum)
+    ,home_goal_in_p1_diff_avg = sum(HomeGamesToSum$gf_in_p1 - HomeGamesToSum$ga_in_p1) / nrow(HomeGamesToSum)
+    ,home_goal_in_p1_diff_total = sum(HomeGamesToSum$gf_in_p1 - HomeGamesToSum$ga_in_p1)
+    ,home_gf_in_p2_avg = sum(HomeGamesToSum$gf_in_p2)/nrow(HomeGamesToSum)
+    ,home_ga_in_p2_avg = sum(HomeGamesToSum$ga_in_p2)/nrow(HomeGamesToSum)
+    ,home_goal_in_p2_diff_avg = sum(HomeGamesToSum$gf_in_p2 - HomeGamesToSum$ga_in_p2) / nrow(HomeGamesToSum)
+    ,home_goal_in_p2_diff_total = sum(HomeGamesToSum$gf_in_p2 - HomeGamesToSum$ga_in_p2)
+    ,home_gf_in_p3_avg = sum(HomeGamesToSum$gf_in_p3)/nrow(HomeGamesToSum)
+    ,home_ga_in_p3_avg = sum(HomeGamesToSum$ga_in_p3)/nrow(HomeGamesToSum)
+    ,home_goal_in_p3_diff_avg = sum(HomeGamesToSum$gf_in_p3 - HomeGamesToSum$ga_in_p3) / nrow(HomeGamesToSum)
+    ,home_goal_in_p3_diff_total = sum(HomeGamesToSum$gf_in_p3 - HomeGamesToSum$ga_in_p3)
+    ,home_gf_in_ot_avg = sum(HomeGamesToSum$gf_in_ot)/nrow(HomeGamesToSum)
+    ,home_ga_in_ot_avg = sum(HomeGamesToSum$ga_in_ot)/nrow(HomeGamesToSum)
+    ,home_goal_in_ot_diff_avg = sum(HomeGamesToSum$gf_in_ot - HomeGamesToSum$ga_in_ot) / nrow(HomeGamesToSum)
+    ,home_goal_in_ot_diff_total = sum(HomeGamesToSum$gf_in_ot - HomeGamesToSum$ga_in_ot)
+    ,home_5v5_TOI_avg = sum(HomeGamesToSum$`5v5_TOI`) / nrow(HomeGamesToSum)
+    ,home_hits_for_avg = sum(HomeGamesToSum$hits_for)/nrow(HomeGamesToSum)
+    ,home_hits_agst_avg = sum(HomeGamesToSum$hits_agst)/nrow(HomeGamesToSum)
+    ,home_hits_diff_avg = sum(HomeGamesToSum$hits_for - HomeGamesToSum$hits_agst) / nrow(HomeGamesToSum)
+    ,home_hits_diff_total = sum(HomeGamesToSum$hits_for - HomeGamesToSum$hits_agst)
+    ,home_blks_for_avg = sum(HomeGamesToSum$blks_for)/nrow(HomeGamesToSum)
+    ,home_blks_agst_avg = sum(HomeGamesToSum$blks_agst)/nrow(HomeGamesToSum)
+    ,home_blks_diff_avg = sum(HomeGamesToSum$blks_for - HomeGamesToSum$blks_agst) / nrow(HomeGamesToSum)
+    ,home_blks_diff_total = sum(HomeGamesToSum$blks_for - HomeGamesToSum$blks_agst)
+    ,home_GvA_avg = sum(HomeGamesToSum$GvA)/nrow(HomeGamesToSum)
+    ,home_TkA_avg = sum(HomeGamesToSum$TkA)/nrow(HomeGamesToSum)
+    ,home_ENG_avg = sum(HomeGamesToSum$ENG)/nrow(HomeGamesToSum)
+    ,home_ENG_opp_avg = sum(HomeGamesToSum$ENG_opp)/nrow(HomeGamesToSum)
+    ,home_MsS_avg = sum(HomeGamesToSum$MsS)/nrow(HomeGamesToSum)
+    ,home_PP_Opp_avg = sum(HomeGamesToSum$PP_Opp)/nrow(HomeGamesToSum)
+    ,`home_PP%` = sum(HomeGamesToSum$pp_gf) / sum(HomeGamesToSum$PP_Opp)
+    ,home_PP_Opp_agnst_avg = sum(HomeGamesToSum$PP_Opp_Agnst)/nrow(HomeGamesToSum)
+    ,`home_PenatlyKill%` = 1- (sum(HomeGamesToSum$pp_ga) / sum(HomeGamesToSum$PP_Opp_Agnst))
+    ,home_W = sum(HomeGamesToSum$W)
+    ,home_L = sum(HomeGamesToSum$L)
+    ,home_OT = sum(HomeGamesToSum$OT)
+    ,home_Pts = (2 * home_W) + home_OT
+    ,`home_Pt%` = home_Pts / (2*nrow(HomeGamesToSum))
+    ,home_SO = sum(HomeGamesToSum$SO)
+    ,home_OT_win = sum(HomeGamesToSum$OT_win)
+    ,home_days_since_last_game = as.integer(selectedgame$Date - max(HomeGamesToSum$Date))
+    
+     )
+  
+  #winning streak -- found here: https://www.r-bloggers.com/2020/06/detecting-streaks-in-r/
+  HomeStreakTable <- HomeGamesToSum %>% select(W,L,OT) %>% mutate(lagged=lag(W)) %>% #note: that's dplyr::lag, not stats::lag
+mutate(start=(W != lagged))
+HomeStreakTable[1, "start"] <- TRUE
+HomeStreakTable <- HomeStreakTable %>% mutate(streak_id=cumsum(start))
+HomeStreakTable <- HomeStreakTable %>% group_by(streak_id) %>% mutate(streak=row_number()) %>%
+ungroup()
+#new part to make it negative for losing streak
+HomeStreakTable <- HomeStreakTable %>% mutate(streakvalue = case_when(W == 0 ~ -streak,
+                                                   W == 1 ~ streak))
+HomePastStats <- HomePastStats %>% mutate(home_Winning_Streak = HomeStreakTable$streakvalue[nrow(HomeStreakTable)])
+  
+  
+  
+  #Calculate Away Past Performance 
+  AwayPastStats <- AwayPastStats %>% mutate(
+    away_fo_avg = sum(AwayGamesToSum$fo)/ nrow(AwayGamesToSum)
+    ,away_fow_avg = sum(AwayGamesToSum$fow)/ nrow(AwayGamesToSum)
+    ,away_fol_avg = sum(AwayGamesToSum$fol)/ nrow(AwayGamesToSum)
+    ,`away_fow%` = sum(AwayGamesToSum$fow)/sum(AwayGamesToSum$fo)
+    ,away_ev_fo_avg = sum(AwayGamesToSum$ev_fo)/ nrow(AwayGamesToSum)
+    ,away_ev_fow_avg = sum(AwayGamesToSum$ev_fow)/ nrow(AwayGamesToSum)
+    ,away_ev_fol_avg = sum(AwayGamesToSum$ev_fol)/ nrow(AwayGamesToSum)
+    ,`away_ev_fow%` = sum(AwayGamesToSum$ev_fow)/sum(AwayGamesToSum$ev_fo)
+    ,away_pp_fo_avg = sum(AwayGamesToSum$pp_fo)/ nrow(AwayGamesToSum)
+    ,away_pp_fow_avg = sum(AwayGamesToSum$pp_fow)/ nrow(AwayGamesToSum)
+    ,away_pp_fol_avg = sum(AwayGamesToSum$pp_fol)/ nrow(AwayGamesToSum)
+    ,`away_pp_fow%` = sum(AwayGamesToSum$pp_fow)/sum(AwayGamesToSum$pp_fo)
+    ,away_sh_fo_avg = sum(AwayGamesToSum$sh_fo)/ nrow(AwayGamesToSum)
+    ,away_sh_fow_avg = sum(AwayGamesToSum$sh_fow)/ nrow(AwayGamesToSum)
+    ,away_sh_fol_avg = sum(AwayGamesToSum$sh_fol)/ nrow(AwayGamesToSum)
+    ,`away_sh_fow%` = sum(AwayGamesToSum$sh_fow)/sum(AwayGamesToSum$sh_fo)
+    ,away_oz_fo_avg = sum(AwayGamesToSum$oz_fo)/ nrow(AwayGamesToSum)
+    ,away_oz_fow_avg = sum(AwayGamesToSum$oz_fow)/ nrow(AwayGamesToSum)
+    ,away_oz_fol_avg = sum(AwayGamesToSum$oz_fol)/ nrow(AwayGamesToSum)
+    ,`away_oz_fow%` = sum(AwayGamesToSum$oz_fow)/sum(AwayGamesToSum$oz_fo)
+    ,away_nz_fo_avg = sum(AwayGamesToSum$nz_fo)/ nrow(AwayGamesToSum)
+    ,away_nz_fow_avg = sum(AwayGamesToSum$nz_fow)/ nrow(AwayGamesToSum)
+    ,away_nz_fol_avg = sum(AwayGamesToSum$nz_fol)/ nrow(AwayGamesToSum)
+    ,`away_nz_fow%` = sum(AwayGamesToSum$nz_fow)/sum(AwayGamesToSum$nz_fo)
+    ,away_dz_fo_avg = sum(AwayGamesToSum$dz_fo)/ nrow(AwayGamesToSum)
+    ,away_dz_fow_avg = sum(AwayGamesToSum$dz_fow)/ nrow(AwayGamesToSum)
+    ,away_dz_fol_avg = sum(AwayGamesToSum$dz_fol)/ nrow(AwayGamesToSum)
+    ,`away_dz_fow%` = sum(AwayGamesToSum$dz_fow)/sum(AwayGamesToSum$dz_fo)
+    ,away_shots_avg = sum(AwayGamesToSum$shots)/nrow(AwayGamesToSum)
+    ,away_shots_against_avg = sum(AwayGamesToSum$shots_against)/nrow(AwayGamesToSum)
+    ,away_sat_for_avg = sum(AwayGamesToSum$sat_for)/nrow(AwayGamesToSum)
+    ,away_sat_against_avg = sum(AwayGamesToSum$sat_against)/nrow(AwayGamesToSum)
+    ,away_sat_avg = sum(AwayGamesToSum$sat)/nrow(AwayGamesToSum)
+    ,away_sat_total = sum(AwayGamesToSum$sat)
+    ,away_sat_tied_avg = sum(AwayGamesToSum$sat_tied)/nrow(AwayGamesToSum)
+    ,away_sat_tied_total = sum(AwayGamesToSum$sat_tied)
+    ,away_sat_ahead_avg = sum(AwayGamesToSum$sat_ahead)/nrow(AwayGamesToSum)
+    ,away_sat_ahead_total = sum(AwayGamesToSum$sat_ahead)
+    ,away_sat_behind_avg = sum(AwayGamesToSum$sat_behind)/nrow(AwayGamesToSum)
+    ,away_sat_behind_total = sum(AwayGamesToSum$sat_behind)
+    ,away_sat_close_avg = sum(AwayGamesToSum$sat_close)/nrow(AwayGamesToSum)
+    ,away_sat_close_total = sum(AwayGamesToSum$sat_close)
+    ,away_usat_for_avg = sum(AwayGamesToSum$usat_for)/nrow(AwayGamesToSum)
+    ,away_usat_against_avg = sum(AwayGamesToSum$usat_agst)/nrow(AwayGamesToSum)
+    ,away_usat_avg = sum(AwayGamesToSum$usat)/nrow(AwayGamesToSum)
+    ,away_usat_total = sum(AwayGamesToSum$usat)
+    ,away_usat_tied_avg = sum(AwayGamesToSum$usat_tied)/nrow(AwayGamesToSum)
+    ,away_usat_tied_total = sum(AwayGamesToSum$usat_tied)
+    ,away_usat_ahead_avg = sum(AwayGamesToSum$usat_ahead)/nrow(AwayGamesToSum)
+    ,away_usat_ahead_total = sum(AwayGamesToSum$usat_ahead)
+    ,away_usat_behind_avg = sum(AwayGamesToSum$usat_behind)/nrow(AwayGamesToSum)
+    ,away_usat_behind_total = sum(AwayGamesToSum$usat_behind)
+    ,away_usat_close_avg = sum(AwayGamesToSum$usat_close)/nrow(AwayGamesToSum)
+    ,away_usat_close_total = sum(AwayGamesToSum$usat_close)
+    ,away_gf_avg = sum(AwayGamesToSum$gf)/nrow(AwayGamesToSum)
+    ,away_ga_avg = sum(AwayGamesToSum$ga)/nrow(AwayGamesToSum)
+    ,away_goal_diff_avg = sum(AwayGamesToSum$gf - AwayGamesToSum$ga) / nrow(AwayGamesToSum)
+    ,away_goal_diff_total = sum(AwayGamesToSum$gf - AwayGamesToSum$ga)
+    ,away_ev_gf_avg = sum(AwayGamesToSum$ev_gf)/nrow(AwayGamesToSum)
+    ,away_ev_ga_avg = sum(AwayGamesToSum$ev_ga)/nrow(AwayGamesToSum)
+    ,away_ev_goal_diff_avg = sum(AwayGamesToSum$ev_gf - AwayGamesToSum$ev_ga) / nrow(AwayGamesToSum)
+    ,away_ev_goal_diff_total = sum(AwayGamesToSum$ev_gf - AwayGamesToSum$ev_ga)
+    ,away_pp_gf_avg = sum(AwayGamesToSum$pp_gf)/nrow(AwayGamesToSum)
+    ,away_pp_ga_avg = sum(AwayGamesToSum$pp_ga)/nrow(AwayGamesToSum)
+    ,away_pp_goal_diff_avg = sum(AwayGamesToSum$pp_gf - AwayGamesToSum$pp_ga) / nrow(AwayGamesToSum)
+    ,away_pp_goal_diff_total = sum(AwayGamesToSum$pp_gf - AwayGamesToSum$pp_ga)
+    ,away_sh_gf_avg = sum(AwayGamesToSum$sh_gf)/nrow(AwayGamesToSum)
+    ,away_sh_ga_avg = sum(AwayGamesToSum$sh_ga)/nrow(AwayGamesToSum)
+    ,away_sh_goal_diff_avg = sum(AwayGamesToSum$sh_gf - AwayGamesToSum$sh_ga) / nrow(AwayGamesToSum)
+    ,away_sh_goal_diff_total = sum(AwayGamesToSum$sh_gf - AwayGamesToSum$sh_ga)
+    ,away_gf_in_p1_avg = sum(AwayGamesToSum$gf_in_p1)/nrow(AwayGamesToSum)
+    ,away_ga_in_p1_avg = sum(AwayGamesToSum$ga_in_p1)/nrow(AwayGamesToSum)
+    ,away_goal_in_p1_diff_avg = sum(AwayGamesToSum$gf_in_p1 - AwayGamesToSum$ga_in_p1) / nrow(AwayGamesToSum)
+    ,away_goal_in_p1_diff_total = sum(AwayGamesToSum$gf_in_p1 - AwayGamesToSum$ga_in_p1)
+    ,away_gf_in_p2_avg = sum(AwayGamesToSum$gf_in_p2)/nrow(AwayGamesToSum)
+    ,away_ga_in_p2_avg = sum(AwayGamesToSum$ga_in_p2)/nrow(AwayGamesToSum)
+    ,away_goal_in_p2_diff_avg = sum(AwayGamesToSum$gf_in_p2 - AwayGamesToSum$ga_in_p2) / nrow(AwayGamesToSum)
+    ,away_goal_in_p2_diff_total = sum(AwayGamesToSum$gf_in_p2 - AwayGamesToSum$ga_in_p2)
+    ,away_gf_in_p3_avg = sum(AwayGamesToSum$gf_in_p3)/nrow(AwayGamesToSum)
+    ,away_ga_in_p3_avg = sum(AwayGamesToSum$ga_in_p3)/nrow(AwayGamesToSum)
+    ,away_goal_in_p3_diff_avg = sum(AwayGamesToSum$gf_in_p3 - AwayGamesToSum$ga_in_p3) / nrow(AwayGamesToSum)
+    ,away_goal_in_p3_diff_total = sum(AwayGamesToSum$gf_in_p3 - AwayGamesToSum$ga_in_p3)
+    ,away_gf_in_ot_avg = sum(AwayGamesToSum$gf_in_ot)/nrow(AwayGamesToSum)
+    ,away_ga_in_ot_avg = sum(AwayGamesToSum$ga_in_ot)/nrow(AwayGamesToSum)
+    ,away_goal_in_ot_diff_avg = sum(AwayGamesToSum$gf_in_ot - AwayGamesToSum$ga_in_ot) / nrow(AwayGamesToSum)
+    ,away_goal_in_ot_diff_total = sum(AwayGamesToSum$gf_in_ot - AwayGamesToSum$ga_in_ot)
+    ,away_5v5_TOI_avg = sum(AwayGamesToSum$`5v5_TOI`) / nrow(AwayGamesToSum)
+    ,away_hits_for_avg = sum(AwayGamesToSum$hits_for)/nrow(AwayGamesToSum)
+    ,away_hits_agst_avg = sum(AwayGamesToSum$hits_agst)/nrow(AwayGamesToSum)
+    ,away_hits_diff_avg = sum(AwayGamesToSum$hits_for - AwayGamesToSum$hits_agst) / nrow(AwayGamesToSum)
+    ,away_hits_diff_total = sum(AwayGamesToSum$hits_for - AwayGamesToSum$hits_agst)
+    ,away_blks_for_avg = sum(AwayGamesToSum$blks_for)/nrow(AwayGamesToSum)
+    ,away_blks_agst_avg = sum(AwayGamesToSum$blks_agst)/nrow(AwayGamesToSum)
+    ,away_blks_diff_avg = sum(AwayGamesToSum$blks_for - AwayGamesToSum$blks_agst) / nrow(AwayGamesToSum)
+    ,away_blks_diff_total = sum(AwayGamesToSum$blks_for - AwayGamesToSum$blks_agst)
+    ,away_GvA_avg = sum(AwayGamesToSum$GvA)/nrow(AwayGamesToSum)
+    ,away_TkA_avg = sum(AwayGamesToSum$TkA)/nrow(AwayGamesToSum)
+    ,away_ENG_avg = sum(AwayGamesToSum$ENG)/nrow(AwayGamesToSum)
+    ,away_ENG_opp_avg = sum(AwayGamesToSum$ENG_opp)/nrow(AwayGamesToSum)
+    ,away_MsS_avg = sum(AwayGamesToSum$MsS)/nrow(AwayGamesToSum)
+    ,away_PP_Opp_avg = sum(AwayGamesToSum$PP_Opp)/nrow(AwayGamesToSum)
+    ,`away_PP%` = sum(AwayGamesToSum$pp_gf) / sum(AwayGamesToSum$PP_Opp)
+    ,away_PP_Opp_agnst_avg = sum(AwayGamesToSum$PP_Opp_Agnst)/nrow(AwayGamesToSum)
+    ,`away_PenatlyKill%` = 1- (sum(AwayGamesToSum$pp_ga) / sum(AwayGamesToSum$PP_Opp_Agnst))
+    ,away_W = sum(AwayGamesToSum$W)
+    ,away_L = sum(AwayGamesToSum$L)
+    ,away_OT = sum(AwayGamesToSum$OT)
+    ,away_Pts = (2 * away_W) + away_OT
+    ,`away_Pt%` = away_Pts / (2*nrow(AwayGamesToSum))
+    ,away_SO = sum(AwayGamesToSum$SO)
+    ,away_OT_win = sum(AwayGamesToSum$OT_win)
+    ,away_days_since_last_game = as.integer(selectedgame$Date - max(AwayGamesToSum$Date))
+    
+     )
+  
+  
+  #winning streak -- found here: https://www.r-bloggers.com/2020/06/detecting-streaks-in-r/
+  AwayStreakTable <- AwayGamesToSum %>% select(W,L,OT) %>% mutate(lagged=lag(W)) %>% #note: that's dplyr::lag, not stats::lag
+mutate(start=(W != lagged))
+AwayStreakTable[1, "start"] <- TRUE
+AwayStreakTable <- AwayStreakTable %>% mutate(streak_id=cumsum(start))
+AwayStreakTable <- AwayStreakTable %>% group_by(streak_id) %>% mutate(streak=row_number()) %>%
+ungroup()
+#new part to make it negative for losing streak
+AwayStreakTable <- AwayStreakTable %>% mutate(streakvalue = case_when(W == 0 ~ -streak,
+                                                   W == 1 ~ streak))
+AwayPastStats <- AwayPastStats %>% mutate(away_Winning_Streak = AwayStreakTable$streakvalue[nrow(AwayStreakTable)])
+  
+  
+  #stats for just last 5 games for recent trends
+  HomeGamesToSum_last5 <- TeamGameStats %>% filter(FocusTeam == selectedgame$HomeTeam
+                                                   #, GameNumber < selectedgame$HomeGameNumber
+                                                     #selectedgame$HomeGameNumber
+                                                   , GameNumber >= max(HomeGamesToSum$GameNumber) - 4
+                                                     #selectedgame$HomeGameNumber - 5
+                                                   ,Season == selectedgame$Season)
+
+  HomePastStats_last5 <- HomePastStats_last5 %>% mutate(
+    home_fo_avg_last5 = sum(HomeGamesToSum_last5$fo)/ nrow(HomeGamesToSum_last5)
+    ,home_fow_avg_last5 = sum(HomeGamesToSum_last5$fow)/ nrow(HomeGamesToSum_last5)
+    ,home_fol_avg_last5 = sum(HomeGamesToSum_last5$fol)/ nrow(HomeGamesToSum_last5)
+    ,`home_fow%_last5` = sum(HomeGamesToSum_last5$fow)/sum(HomeGamesToSum_last5$fo)
+    ,home_ev_fo_avg_last5 = sum(HomeGamesToSum_last5$ev_fo)/ nrow(HomeGamesToSum_last5)
+    ,home_ev_fow_avg_last5 = sum(HomeGamesToSum_last5$ev_fow)/ nrow(HomeGamesToSum_last5)
+    ,home_ev_fol_avg_last5 = sum(HomeGamesToSum_last5$ev_fol)/ nrow(HomeGamesToSum_last5)
+    ,`home_ev_fow%_last5` = sum(HomeGamesToSum_last5$ev_fow)/sum(HomeGamesToSum_last5$ev_fo)
+    ,home_pp_fo_avg_last5 = sum(HomeGamesToSum_last5$pp_fo)/ nrow(HomeGamesToSum_last5)
+    ,home_pp_fow_avg_last5 = sum(HomeGamesToSum_last5$pp_fow)/ nrow(HomeGamesToSum_last5)
+    ,home_pp_fol_avg_last5 = sum(HomeGamesToSum_last5$pp_fol)/ nrow(HomeGamesToSum_last5)
+    ,`home_pp_fow%_last5` = sum(HomeGamesToSum_last5$pp_fow)/sum(HomeGamesToSum_last5$pp_fo)
+    ,home_sh_fo_avg_last5 = sum(HomeGamesToSum_last5$sh_fo)/ nrow(HomeGamesToSum_last5)
+    ,home_sh_fow_avg_last5 = sum(HomeGamesToSum_last5$sh_fow)/ nrow(HomeGamesToSum_last5)
+    ,home_sh_fol_avg_last5 = sum(HomeGamesToSum_last5$sh_fol)/ nrow(HomeGamesToSum_last5)
+    ,`home_sh_fow%_last5` = sum(HomeGamesToSum_last5$sh_fow)/sum(HomeGamesToSum_last5$sh_fo)
+    ,home_oz_fo_avg_last5 = sum(HomeGamesToSum_last5$oz_fo)/ nrow(HomeGamesToSum_last5)
+    ,home_oz_fow_avg_last5 = sum(HomeGamesToSum_last5$oz_fow)/ nrow(HomeGamesToSum_last5)
+    ,home_oz_fol_avg_last5 = sum(HomeGamesToSum_last5$oz_fol)/ nrow(HomeGamesToSum_last5)
+    ,`home_oz_fow%_last5` = sum(HomeGamesToSum_last5$oz_fow)/sum(HomeGamesToSum_last5$oz_fo)
+    ,home_nz_fo_avg_last5 = sum(HomeGamesToSum_last5$nz_fo)/ nrow(HomeGamesToSum_last5)
+    ,home_nz_fow_avg_last5 = sum(HomeGamesToSum_last5$nz_fow)/ nrow(HomeGamesToSum_last5)
+    ,home_nz_fol_avg_last5 = sum(HomeGamesToSum_last5$nz_fol)/ nrow(HomeGamesToSum_last5)
+    ,`home_nz_fow%_last5` = sum(HomeGamesToSum_last5$nz_fow)/sum(HomeGamesToSum_last5$nz_fo)
+    ,home_dz_fo_avg_last5 = sum(HomeGamesToSum_last5$dz_fo)/ nrow(HomeGamesToSum_last5)
+    ,home_dz_fow_avg_last5 = sum(HomeGamesToSum_last5$dz_fow)/ nrow(HomeGamesToSum_last5)
+    ,home_dz_fol_avg_last5 = sum(HomeGamesToSum_last5$dz_fol)/ nrow(HomeGamesToSum_last5)
+    ,`home_dz_fow%_last5` = sum(HomeGamesToSum_last5$dz_fow)/sum(HomeGamesToSum_last5$dz_fo)
+    ,home_shots_avg_last5 = sum(HomeGamesToSum_last5$shots)/nrow(HomeGamesToSum_last5)
+    ,home_shots_against_avg_last5 = sum(HomeGamesToSum_last5$shots_against)/nrow(HomeGamesToSum_last5)
+    ,home_sat_for_avg_last5 = sum(HomeGamesToSum_last5$sat_for)/nrow(HomeGamesToSum_last5)
+    ,home_sat_against_avg_last5 = sum(HomeGamesToSum_last5$sat_against)/nrow(HomeGamesToSum_last5)
+    ,home_sat_avg_last5 = sum(HomeGamesToSum_last5$sat)/nrow(HomeGamesToSum_last5)
+    ,home_sat_total_last5 = sum(HomeGamesToSum_last5$sat)
+    ,home_sat_tied_avg_last5 = sum(HomeGamesToSum_last5$sat_tied)/nrow(HomeGamesToSum_last5)
+    ,home_sat_tied_total_last5 = sum(HomeGamesToSum_last5$sat_tied)
+    ,home_sat_ahead_avg_last5 = sum(HomeGamesToSum_last5$sat_ahead)/nrow(HomeGamesToSum_last5)
+    ,home_sat_ahead_total_last5 = sum(HomeGamesToSum_last5$sat_ahead)
+    ,home_sat_behind_avg_last5 = sum(HomeGamesToSum_last5$sat_behind)/nrow(HomeGamesToSum_last5)
+    ,home_sat_behind_total_last5 = sum(HomeGamesToSum_last5$sat_behind)
+    ,home_sat_close_avg_last5 = sum(HomeGamesToSum_last5$sat_close)/nrow(HomeGamesToSum_last5)
+    ,home_sat_close_total_last5 = sum(HomeGamesToSum_last5$sat_close)
+    ,home_usat_for_avg_last5 = sum(HomeGamesToSum_last5$usat_for)/nrow(HomeGamesToSum_last5)
+    ,home_usat_against_avg_last5 = sum(HomeGamesToSum_last5$usat_agst)/nrow(HomeGamesToSum_last5)
+    ,home_usat_avg_last5 = sum(HomeGamesToSum_last5$usat)/nrow(HomeGamesToSum_last5)
+    ,home_usat_total_last5 = sum(HomeGamesToSum_last5$usat)
+    ,home_usat_tied_avg_last5 = sum(HomeGamesToSum_last5$usat_tied)/nrow(HomeGamesToSum_last5)
+    ,home_usat_tied_total_last5 = sum(HomeGamesToSum_last5$usat_tied)
+    ,home_usat_ahead_avg_last5 = sum(HomeGamesToSum_last5$usat_ahead)/nrow(HomeGamesToSum_last5)
+    ,home_usat_ahead_total_last5 = sum(HomeGamesToSum_last5$usat_ahead)
+    ,home_usat_behind_avg_last5 = sum(HomeGamesToSum_last5$usat_behind)/nrow(HomeGamesToSum_last5)
+    ,home_usat_behind_total_last5 = sum(HomeGamesToSum_last5$usat_behind)
+    ,home_usat_close_avg_last5 = sum(HomeGamesToSum_last5$usat_close)/nrow(HomeGamesToSum_last5)
+    ,home_usat_close_total_last5 = sum(HomeGamesToSum_last5$usat_close)
+    ,home_gf_avg_last5 = sum(HomeGamesToSum_last5$gf)/nrow(HomeGamesToSum_last5)
+    ,home_ga_avg_last5 = sum(HomeGamesToSum_last5$ga)/nrow(HomeGamesToSum_last5)
+    ,home_goal_diff_avg_last5 = sum(HomeGamesToSum_last5$gf - HomeGamesToSum_last5$ga) / nrow(HomeGamesToSum_last5)
+    ,home_goal_diff_total_last5 = sum(HomeGamesToSum_last5$gf - HomeGamesToSum_last5$ga)
+    ,home_ev_gf_avg_last5 = sum(HomeGamesToSum_last5$ev_gf)/nrow(HomeGamesToSum_last5)
+    ,home_ev_ga_avg_last5 = sum(HomeGamesToSum_last5$ev_ga)/nrow(HomeGamesToSum_last5)
+    ,home_ev_goal_diff_avg_last5 = sum(HomeGamesToSum_last5$ev_gf - HomeGamesToSum_last5$ev_ga) / nrow(HomeGamesToSum_last5)
+    ,home_ev_goal_diff_total_last5 = sum(HomeGamesToSum_last5$ev_gf - HomeGamesToSum_last5$ev_ga)
+    ,home_pp_gf_avg_last5 = sum(HomeGamesToSum_last5$pp_gf)/nrow(HomeGamesToSum_last5)
+    ,home_pp_ga_avg_last5 = sum(HomeGamesToSum_last5$pp_ga)/nrow(HomeGamesToSum_last5)
+    ,home_pp_goal_diff_avg_last5 = sum(HomeGamesToSum_last5$pp_gf - HomeGamesToSum_last5$pp_ga) / nrow(HomeGamesToSum_last5)
+    ,home_pp_goal_diff_total_last5 = sum(HomeGamesToSum_last5$pp_gf - HomeGamesToSum_last5$pp_ga)
+    ,home_sh_gf_avg_last5 = sum(HomeGamesToSum_last5$sh_gf)/nrow(HomeGamesToSum_last5)
+    ,home_sh_ga_avg_last5 = sum(HomeGamesToSum_last5$sh_ga)/nrow(HomeGamesToSum_last5)
+    ,home_sh_goal_diff_avg_last5 = sum(HomeGamesToSum_last5$sh_gf - HomeGamesToSum_last5$sh_ga) / nrow(HomeGamesToSum_last5)
+    ,home_sh_goal_diff_total_last5 = sum(HomeGamesToSum_last5$sh_gf - HomeGamesToSum_last5$sh_ga)
+    ,home_gf_in_p1_avg_last5 = sum(HomeGamesToSum_last5$gf_in_p1)/nrow(HomeGamesToSum_last5)
+    ,home_ga_in_p1_avg_last5 = sum(HomeGamesToSum_last5$ga_in_p1)/nrow(HomeGamesToSum_last5)
+    ,home_goal_in_p1_diff_avg_last5 = sum(HomeGamesToSum_last5$gf_in_p1 - HomeGamesToSum_last5$ga_in_p1) / nrow(HomeGamesToSum_last5)
+    ,home_goal_in_p1_diff_total_last5 = sum(HomeGamesToSum_last5$gf_in_p1 - HomeGamesToSum_last5$ga_in_p1)
+    ,home_gf_in_p2_avg_last5 = sum(HomeGamesToSum_last5$gf_in_p2)/nrow(HomeGamesToSum_last5)
+    ,home_ga_in_p2_avg_last5 = sum(HomeGamesToSum_last5$ga_in_p2)/nrow(HomeGamesToSum_last5)
+    ,home_goal_in_p2_diff_avg_last5 = sum(HomeGamesToSum_last5$gf_in_p2 - HomeGamesToSum_last5$ga_in_p2) / nrow(HomeGamesToSum_last5)
+    ,home_goal_in_p2_diff_total_last5 = sum(HomeGamesToSum_last5$gf_in_p2 - HomeGamesToSum_last5$ga_in_p2)
+    ,home_gf_in_p3_avg_last5 = sum(HomeGamesToSum_last5$gf_in_p3)/nrow(HomeGamesToSum_last5)
+    ,home_ga_in_p3_avg_last5 = sum(HomeGamesToSum_last5$ga_in_p3)/nrow(HomeGamesToSum_last5)
+    ,home_goal_in_p3_diff_avg_last5 = sum(HomeGamesToSum_last5$gf_in_p3 - HomeGamesToSum_last5$ga_in_p3) / nrow(HomeGamesToSum_last5)
+    ,home_goal_in_p3_diff_total_last5 = sum(HomeGamesToSum_last5$gf_in_p3 - HomeGamesToSum_last5$ga_in_p3)
+    ,home_gf_in_ot_avg_last5 = sum(HomeGamesToSum_last5$gf_in_ot)/nrow(HomeGamesToSum_last5)
+    ,home_ga_in_ot_avg_last5 = sum(HomeGamesToSum_last5$ga_in_ot)/nrow(HomeGamesToSum_last5)
+    ,home_goal_in_ot_diff_avg_last5 = sum(HomeGamesToSum_last5$gf_in_ot - HomeGamesToSum_last5$ga_in_ot) / nrow(HomeGamesToSum_last5)
+    ,home_goal_in_ot_diff_total_last5 = sum(HomeGamesToSum_last5$gf_in_ot - HomeGamesToSum_last5$ga_in_ot)
+    ,home_5v5_TOI_avg_last5 = sum(HomeGamesToSum_last5$`5v5_TOI`) / nrow(HomeGamesToSum_last5)
+    ,home_hits_for_avg_last5 = sum(HomeGamesToSum_last5$hits_for)/nrow(HomeGamesToSum_last5)
+    ,home_hits_agst_avg_last5 = sum(HomeGamesToSum_last5$hits_agst)/nrow(HomeGamesToSum_last5)
+    ,home_hits_diff_avg_last5 = sum(HomeGamesToSum_last5$hits_for - HomeGamesToSum_last5$hits_agst) / nrow(HomeGamesToSum_last5)
+    ,home_hits_diff_total_last5 = sum(HomeGamesToSum_last5$hits_for - HomeGamesToSum_last5$hits_agst)
+    ,home_blks_for_avg_last5 = sum(HomeGamesToSum_last5$blks_for)/nrow(HomeGamesToSum_last5)
+    ,home_blks_agst_avg_last5 = sum(HomeGamesToSum_last5$blks_agst)/nrow(HomeGamesToSum_last5)
+    ,home_blks_diff_avg_last5 = sum(HomeGamesToSum_last5$blks_for - HomeGamesToSum_last5$blks_agst) / nrow(HomeGamesToSum_last5)
+    ,home_blks_diff_total_last5 = sum(HomeGamesToSum_last5$blks_for - HomeGamesToSum_last5$blks_agst)
+    ,home_GvA_avg_last5 = sum(HomeGamesToSum_last5$GvA)/nrow(HomeGamesToSum_last5)
+    ,home_TkA_avg_last5 = sum(HomeGamesToSum_last5$TkA)/nrow(HomeGamesToSum_last5)
+    ,home_ENG_avg_last5 = sum(HomeGamesToSum_last5$ENG)/nrow(HomeGamesToSum_last5)
+    ,home_ENG_opp_avg_last5 = sum(HomeGamesToSum_last5$ENG_opp)/nrow(HomeGamesToSum_last5)
+    ,home_MsS_avg_last5 = sum(HomeGamesToSum_last5$MsS)/nrow(HomeGamesToSum_last5)
+    ,home_PP_Opp_avg_last5 = sum(HomeGamesToSum_last5$PP_Opp)/nrow(HomeGamesToSum_last5)
+    ,`home_PP%_last5` = sum(HomeGamesToSum_last5$pp_gf) / sum(HomeGamesToSum_last5$PP_Opp)
+    ,home_PP_Opp_agnst_avg_last5 = sum(HomeGamesToSum_last5$PP_Opp_Agnst)/nrow(HomeGamesToSum_last5)
+    ,`home_PenatlyKill%_last5` = 1- (sum(HomeGamesToSum_last5$pp_ga) / sum(HomeGamesToSum_last5$PP_Opp_Agnst))
+    ,home_W_last5 = sum(HomeGamesToSum_last5$W)
+    ,home_L_last5 = sum(HomeGamesToSum_last5$L)
+    ,home_OT_last5 = sum(HomeGamesToSum_last5$OT)
+    ,home_Pts_last5 = (2 * home_W_last5) + home_OT_last5
+    ,`home_Pt%_last5` = home_Pts_last5 / (2*nrow(HomeGamesToSum_last5))
+    ,home_SO_last5 = sum(HomeGamesToSum_last5$SO)
+    ,home_OT_win_last5 = sum(HomeGamesToSum_last5$OT_win)
+    
+    
+     )
+  
+  
+   AwayGamesToSum_last5 <- TeamGameStats %>% filter(FocusTeam == selectedgame$AwayTeam
+                                                    #, GameNumber < selectedgame$AwayGameNumber
+                                                    , GameNumber >= max(AwayGamesToSum$GameNumber) - 4
+                                                      #selectedgame$AwayGameNumber - 5
+                                                    ,Season == selectedgame$Season)
+   
+   
+   AwayPastStats_last5 <- AwayPastStats_last5 %>% mutate(
+    away_fo_avg_last5 = sum(AwayGamesToSum_last5$fo)/ nrow(AwayGamesToSum_last5)
+    ,away_fow_avg_last5 = sum(AwayGamesToSum_last5$fow)/ nrow(AwayGamesToSum_last5)
+    ,away_fol_avg_last5 = sum(AwayGamesToSum_last5$fol)/ nrow(AwayGamesToSum_last5)
+    ,`away_fow%_last5` = sum(AwayGamesToSum_last5$fow)/sum(AwayGamesToSum_last5$fo)
+    ,away_ev_fo_avg_last5 = sum(AwayGamesToSum_last5$ev_fo)/ nrow(AwayGamesToSum_last5)
+    ,away_ev_fow_avg_last5 = sum(AwayGamesToSum_last5$ev_fow)/ nrow(AwayGamesToSum_last5)
+    ,away_ev_fol_avg_last5 = sum(AwayGamesToSum_last5$ev_fol)/ nrow(AwayGamesToSum_last5)
+    ,`away_ev_fow%_last5` = sum(AwayGamesToSum_last5$ev_fow)/sum(AwayGamesToSum_last5$ev_fo)
+    ,away_pp_fo_avg_last5 = sum(AwayGamesToSum_last5$pp_fo)/ nrow(AwayGamesToSum_last5)
+    ,away_pp_fow_avg_last5 = sum(AwayGamesToSum_last5$pp_fow)/ nrow(AwayGamesToSum_last5)
+    ,away_pp_fol_avg_last5 = sum(AwayGamesToSum_last5$pp_fol)/ nrow(AwayGamesToSum_last5)
+    ,`away_pp_fow%_last5` = sum(AwayGamesToSum_last5$pp_fow)/sum(AwayGamesToSum_last5$pp_fo)
+    ,away_sh_fo_avg_last5 = sum(AwayGamesToSum_last5$sh_fo)/ nrow(AwayGamesToSum_last5)
+    ,away_sh_fow_avg_last5 = sum(AwayGamesToSum_last5$sh_fow)/ nrow(AwayGamesToSum_last5)
+    ,away_sh_fol_avg_last5 = sum(AwayGamesToSum_last5$sh_fol)/ nrow(AwayGamesToSum_last5)
+    ,`away_sh_fow%_last5` = sum(AwayGamesToSum_last5$sh_fow)/sum(AwayGamesToSum_last5$sh_fo)
+    ,away_oz_fo_avg_last5 = sum(AwayGamesToSum_last5$oz_fo)/ nrow(AwayGamesToSum_last5)
+    ,away_oz_fow_avg_last5 = sum(AwayGamesToSum_last5$oz_fow)/ nrow(AwayGamesToSum_last5)
+    ,away_oz_fol_avg_last5 = sum(AwayGamesToSum_last5$oz_fol)/ nrow(AwayGamesToSum_last5)
+    ,`away_oz_fow%_last5` = sum(AwayGamesToSum_last5$oz_fow)/sum(AwayGamesToSum_last5$oz_fo)
+    ,away_nz_fo_avg_last5 = sum(AwayGamesToSum_last5$nz_fo)/ nrow(AwayGamesToSum_last5)
+    ,away_nz_fow_avg_last5 = sum(AwayGamesToSum_last5$nz_fow)/ nrow(AwayGamesToSum_last5)
+    ,away_nz_fol_avg_last5 = sum(AwayGamesToSum_last5$nz_fol)/ nrow(AwayGamesToSum_last5)
+    ,`away_nz_fow%_last5` = sum(AwayGamesToSum_last5$nz_fow)/sum(AwayGamesToSum_last5$nz_fo)
+    ,away_dz_fo_avg_last5 = sum(AwayGamesToSum_last5$dz_fo)/ nrow(AwayGamesToSum_last5)
+    ,away_dz_fow_avg_last5 = sum(AwayGamesToSum_last5$dz_fow)/ nrow(AwayGamesToSum_last5)
+    ,away_dz_fol_avg_last5 = sum(AwayGamesToSum_last5$dz_fol)/ nrow(AwayGamesToSum_last5)
+    ,`away_dz_fow%_last5` = sum(AwayGamesToSum_last5$dz_fow)/sum(AwayGamesToSum_last5$dz_fo)
+    ,away_shots_avg_last5 = sum(AwayGamesToSum_last5$shots)/nrow(AwayGamesToSum_last5)
+    ,away_shots_against_avg_last5 = sum(AwayGamesToSum_last5$shots_against)/nrow(AwayGamesToSum_last5)
+    ,away_sat_for_avg_last5 = sum(AwayGamesToSum_last5$sat_for)/nrow(AwayGamesToSum_last5)
+    ,away_sat_against_avg_last5 = sum(AwayGamesToSum_last5$sat_against)/nrow(AwayGamesToSum_last5)
+    ,away_sat_avg_last5 = sum(AwayGamesToSum_last5$sat)/nrow(AwayGamesToSum_last5)
+    ,away_sat_total_last5 = sum(AwayGamesToSum_last5$sat)
+    ,away_sat_tied_avg_last5 = sum(AwayGamesToSum_last5$sat_tied)/nrow(AwayGamesToSum_last5)
+    ,away_sat_tied_total_last5 = sum(AwayGamesToSum_last5$sat_tied)
+    ,away_sat_ahead_avg_last5 = sum(AwayGamesToSum_last5$sat_ahead)/nrow(AwayGamesToSum_last5)
+    ,away_sat_ahead_total_last5 = sum(AwayGamesToSum_last5$sat_ahead)
+    ,away_sat_behind_avg_last5 = sum(AwayGamesToSum_last5$sat_behind)/nrow(AwayGamesToSum_last5)
+    ,away_sat_behind_total_last5 = sum(AwayGamesToSum_last5$sat_behind)
+    ,away_sat_close_avg_last5 = sum(AwayGamesToSum_last5$sat_close)/nrow(AwayGamesToSum_last5)
+    ,away_sat_close_total_last5 = sum(AwayGamesToSum_last5$sat_close)
+    ,away_usat_for_avg_last5 = sum(AwayGamesToSum_last5$usat_for)/nrow(AwayGamesToSum_last5)
+    ,away_usat_against_avg_last5 = sum(AwayGamesToSum_last5$usat_agst)/nrow(AwayGamesToSum_last5)
+    ,away_usat_avg_last5 = sum(AwayGamesToSum_last5$usat)/nrow(AwayGamesToSum_last5)
+    ,away_usat_total_last5 = sum(AwayGamesToSum_last5$usat)
+    ,away_usat_tied_avg_last5 = sum(AwayGamesToSum_last5$usat_tied)/nrow(AwayGamesToSum_last5)
+    ,away_usat_tied_total_last5 = sum(AwayGamesToSum_last5$usat_tied)
+    ,away_usat_ahead_avg_last5 = sum(AwayGamesToSum_last5$usat_ahead)/nrow(AwayGamesToSum_last5)
+    ,away_usat_ahead_total_last5 = sum(AwayGamesToSum_last5$usat_ahead)
+    ,away_usat_behind_avg_last5 = sum(AwayGamesToSum_last5$usat_behind)/nrow(AwayGamesToSum_last5)
+    ,away_usat_behind_total_last5 = sum(AwayGamesToSum_last5$usat_behind)
+    ,away_usat_close_avg_last5 = sum(AwayGamesToSum_last5$usat_close)/nrow(AwayGamesToSum_last5)
+    ,away_usat_close_total_last5 = sum(AwayGamesToSum_last5$usat_close)
+    ,away_gf_avg_last5 = sum(AwayGamesToSum_last5$gf)/nrow(AwayGamesToSum_last5)
+    ,away_ga_avg_last5 = sum(AwayGamesToSum_last5$ga)/nrow(AwayGamesToSum_last5)
+    ,away_goal_diff_avg_last5 = sum(AwayGamesToSum_last5$gf - AwayGamesToSum_last5$ga) / nrow(AwayGamesToSum_last5)
+    ,away_goal_diff_total_last5 = sum(AwayGamesToSum_last5$gf - AwayGamesToSum_last5$ga)
+    ,away_ev_gf_avg_last5 = sum(AwayGamesToSum_last5$ev_gf)/nrow(AwayGamesToSum_last5)
+    ,away_ev_ga_avg_last5 = sum(AwayGamesToSum_last5$ev_ga)/nrow(AwayGamesToSum_last5)
+    ,away_ev_goal_diff_avg_last5 = sum(AwayGamesToSum_last5$ev_gf - AwayGamesToSum_last5$ev_ga) / nrow(AwayGamesToSum_last5)
+    ,away_ev_goal_diff_total_last5 = sum(AwayGamesToSum_last5$ev_gf - AwayGamesToSum_last5$ev_ga)
+    ,away_pp_gf_avg_last5 = sum(AwayGamesToSum_last5$pp_gf)/nrow(AwayGamesToSum_last5)
+    ,away_pp_ga_avg_last5 = sum(AwayGamesToSum_last5$pp_ga)/nrow(AwayGamesToSum_last5)
+    ,away_pp_goal_diff_avg_last5 = sum(AwayGamesToSum_last5$pp_gf - AwayGamesToSum_last5$pp_ga) / nrow(AwayGamesToSum_last5)
+    ,away_pp_goal_diff_total_last5 = sum(AwayGamesToSum_last5$pp_gf - AwayGamesToSum_last5$pp_ga)
+    ,away_sh_gf_avg_last5 = sum(AwayGamesToSum_last5$sh_gf)/nrow(AwayGamesToSum_last5)
+    ,away_sh_ga_avg_last5 = sum(AwayGamesToSum_last5$sh_ga)/nrow(AwayGamesToSum_last5)
+    ,away_sh_goal_diff_avg_last5 = sum(AwayGamesToSum_last5$sh_gf - AwayGamesToSum_last5$sh_ga) / nrow(AwayGamesToSum_last5)
+    ,away_sh_goal_diff_total_last5 = sum(AwayGamesToSum_last5$sh_gf - AwayGamesToSum_last5$sh_ga)
+    ,away_gf_in_p1_avg_last5 = sum(AwayGamesToSum_last5$gf_in_p1)/nrow(AwayGamesToSum_last5)
+    ,away_ga_in_p1_avg_last5 = sum(AwayGamesToSum_last5$ga_in_p1)/nrow(AwayGamesToSum_last5)
+    ,away_goal_in_p1_diff_avg_last5 = sum(AwayGamesToSum_last5$gf_in_p1 - AwayGamesToSum_last5$ga_in_p1) / nrow(AwayGamesToSum_last5)
+    ,away_goal_in_p1_diff_total_last5 = sum(AwayGamesToSum_last5$gf_in_p1 - AwayGamesToSum_last5$ga_in_p1)
+    ,away_gf_in_p2_avg_last5 = sum(AwayGamesToSum_last5$gf_in_p2)/nrow(AwayGamesToSum_last5)
+    ,away_ga_in_p2_avg_last5 = sum(AwayGamesToSum_last5$ga_in_p2)/nrow(AwayGamesToSum_last5)
+    ,away_goal_in_p2_diff_avg_last5 = sum(AwayGamesToSum_last5$gf_in_p2 - AwayGamesToSum_last5$ga_in_p2) / nrow(AwayGamesToSum_last5)
+    ,away_goal_in_p2_diff_total_last5 = sum(AwayGamesToSum_last5$gf_in_p2 - AwayGamesToSum_last5$ga_in_p2)
+    ,away_gf_in_p3_avg_last5 = sum(AwayGamesToSum_last5$gf_in_p3)/nrow(AwayGamesToSum_last5)
+    ,away_ga_in_p3_avg_last5 = sum(AwayGamesToSum_last5$ga_in_p3)/nrow(AwayGamesToSum_last5)
+    ,away_goal_in_p3_diff_avg_last5 = sum(AwayGamesToSum_last5$gf_in_p3 - AwayGamesToSum_last5$ga_in_p3) / nrow(AwayGamesToSum_last5)
+    ,away_goal_in_p3_diff_total_last5 = sum(AwayGamesToSum_last5$gf_in_p3 - AwayGamesToSum_last5$ga_in_p3)
+    ,away_gf_in_ot_avg_last5 = sum(AwayGamesToSum_last5$gf_in_ot)/nrow(AwayGamesToSum_last5)
+    ,away_ga_in_ot_avg_last5 = sum(AwayGamesToSum_last5$ga_in_ot)/nrow(AwayGamesToSum_last5)
+    ,away_goal_in_ot_diff_avg_last5 = sum(AwayGamesToSum_last5$gf_in_ot - AwayGamesToSum_last5$ga_in_ot) / nrow(AwayGamesToSum_last5)
+    ,away_goal_in_ot_diff_total_last5 = sum(AwayGamesToSum_last5$gf_in_ot - AwayGamesToSum_last5$ga_in_ot)
+    ,away_5v5_TOI_avg_last5 = sum(AwayGamesToSum_last5$`5v5_TOI`) / nrow(AwayGamesToSum_last5)
+    ,away_hits_for_avg_last5 = sum(AwayGamesToSum_last5$hits_for)/nrow(AwayGamesToSum_last5)
+    ,away_hits_agst_avg_last5 = sum(AwayGamesToSum_last5$hits_agst)/nrow(AwayGamesToSum_last5)
+    ,away_hits_diff_avg_last5 = sum(AwayGamesToSum_last5$hits_for - AwayGamesToSum_last5$hits_agst) / nrow(AwayGamesToSum_last5)
+    ,away_hits_diff_total_last5 = sum(AwayGamesToSum_last5$hits_for - AwayGamesToSum_last5$hits_agst)
+    ,away_blks_for_avg_last5 = sum(AwayGamesToSum_last5$blks_for)/nrow(AwayGamesToSum_last5)
+    ,away_blks_agst_avg_last5 = sum(AwayGamesToSum_last5$blks_agst)/nrow(AwayGamesToSum_last5)
+    ,away_blks_diff_avg_last5 = sum(AwayGamesToSum_last5$blks_for - AwayGamesToSum_last5$blks_agst) / nrow(AwayGamesToSum_last5)
+    ,away_blks_diff_total_last5 = sum(AwayGamesToSum_last5$blks_for - AwayGamesToSum_last5$blks_agst)
+    ,away_GvA_avg_last5 = sum(AwayGamesToSum_last5$GvA)/nrow(AwayGamesToSum_last5)
+    ,away_TkA_avg_last5 = sum(AwayGamesToSum_last5$TkA)/nrow(AwayGamesToSum_last5)
+    ,away_ENG_avg_last5 = sum(AwayGamesToSum_last5$ENG)/nrow(AwayGamesToSum_last5)
+    ,away_ENG_opp_avg_last5 = sum(AwayGamesToSum_last5$ENG_opp)/nrow(AwayGamesToSum_last5)
+    ,away_MsS_avg_last5 = sum(AwayGamesToSum_last5$MsS)/nrow(AwayGamesToSum_last5)
+    ,away_PP_Opp_avg_last5 = sum(AwayGamesToSum_last5$PP_Opp)/nrow(AwayGamesToSum_last5)
+    ,`away_PP%_last5` = sum(AwayGamesToSum_last5$pp_gf) / sum(AwayGamesToSum_last5$PP_Opp)
+    ,away_PP_Opp_agnst_avg_last5 = sum(AwayGamesToSum_last5$PP_Opp_Agnst)/nrow(AwayGamesToSum_last5)
+    ,`away_PenatlyKill%_last5` = 1- (sum(AwayGamesToSum_last5$pp_ga) / sum(AwayGamesToSum_last5$PP_Opp_Agnst))
+    ,away_W_last5 = sum(AwayGamesToSum_last5$W)
+    ,away_L_last5 = sum(AwayGamesToSum_last5$L)
+    ,away_OT_last5 = sum(AwayGamesToSum_last5$OT)
+    ,away_Pts_last5 = (2 * away_W_last5) + away_OT_last5
+    ,`away_Pt%_last5` = away_Pts_last5 / (2*nrow(AwayGamesToSum_last5))
+    ,away_SO_last5 = sum(AwayGamesToSum_last5$SO)
+    ,away_OT_win_last5 = sum(AwayGamesToSum_last5$OT_win)
+    
+    
+     )
+
+   #bind it all together
+  TotalGameStats <-  cbind(selectedgame, HomePastStats, AwayPastStats, HomePastStats_last5, AwayPastStats_last5)
+   
+  TotalPredictionData <- rbind(TotalPredictionData, TotalGameStats)
+   
+}
+
+#remove duplicate column names
+idx = which(duplicated(names(TotalPredictionData)))
+
+TotalPredictionData = TotalPredictionData[,-idx]
+
+TotalPredictionData_Final <- TotalPredictionData %>% mutate(Year = year(Date)
+                               ,Month = month(Date)
+                               ,Day = day(Date)
+                               ,SeasonYearStart = as.integer(substr(Season, start = 1, stop = 4)))
+
+#Manually One-Hot Encode teams since not all are in this dataset
+TotalPredictionData_Final <- TotalPredictionData_Final %>% mutate(
+  HomeTeamAnaheim.Ducks = case_when(HomeTeam == "Anaheim Ducks" ~ 1, HomeTeam != "Anaheim Ducks" ~ 0)
+  ,HomeTeamArizona.Coyotes = case_when(HomeTeam == "Arizona Coyotes" | HomeTeam =="Utah Hockey Club" ~ 1, HomeTeam != "Arizona Coyotes" | HomeTeam !="Utah Hockey Club" ~ 0)
+  ,HomeTeamBoston.Bruins = case_when(HomeTeam == "Boston Bruins" ~ 1, HomeTeam != "Boston Bruins" ~ 0)
+  ,HomeTeamBuffalo.Sabres = case_when(HomeTeam == "Buffalo Sabres" ~ 1, HomeTeam != "Buffalo Sabres" ~ 0)
+  ,HomeTeamCalgary.Flames = case_when(HomeTeam == "Calgary Flames" ~ 1, HomeTeam != "Calgary Flames" ~ 0)
+  ,HomeTeamCarolina.Hurricanes = case_when(HomeTeam == "Carolina Hurricanes" ~ 1, HomeTeam != "Carolina Hurricanes" ~ 0)
+  ,HomeTeamChicago.Blackhawks = case_when(HomeTeam == "Chicago Blackhawks" ~ 1, HomeTeam != "Chicago Blackhawks" ~ 0)
+  ,HomeTeamColorado.Avalanche = case_when(HomeTeam == "Colorado Avalanche " ~ 1, HomeTeam != "Colorado Avalanche " ~ 0)
+  ,HomeTeamColumbus.Blue.Jackets = case_when(HomeTeam == "Columbus Blue Jackets" ~ 1, HomeTeam != "Columbus Blue Jackets" ~ 0)
+  ,HomeTeamDallas.Stars = case_when(HomeTeam == "Dallas Stars" ~ 1, HomeTeam != "Dallas Stars" ~ 0)
+  ,HomeTeamDetroit.Red.Wings = case_when(HomeTeam == "Detroit Red Wings" ~ 1, HomeTeam != "Detroit Red Wings" ~ 0)
+  ,HomeTeamEdmonton.Oilers = case_when(HomeTeam == "Edmonton Oilers" ~ 1, HomeTeam != "Edmonton Oilers" ~ 0)
+  ,HomeTeamFlorida.Panthers = case_when(HomeTeam == "Florida Panthers" ~ 1, HomeTeam != "Florida Panthers" ~ 0)
+  ,HomeTeamLos.Angeles.Kings = case_when(HomeTeam == "Los Angeles Kings" ~ 1, HomeTeam != "Los Angeles Kings" ~ 0)
+  ,HomeTeamMinnesota.Wild = case_when(HomeTeam == "Minnesota Wild" ~ 1, HomeTeam != "Minnesota Wild" ~ 0)
+  ,HomeTeamMontréal.Canadiens = case_when(HomeTeam == "Montréal Canadiens" ~ 1, HomeTeam != "Montréal Canadiens" ~ 0)
+  ,HomeTeamNashville.Predators = case_when(HomeTeam == "Nashville Predators" ~ 1, HomeTeam != "Nashville Predators" ~ 0)
+  ,HomeTeamNew.Jersey.Devils = case_when(HomeTeam == "New Jersey Devils" ~ 1, HomeTeam != "New Jersey Devils" ~ 0)
+  ,HomeTeamNew.York.Islanders = case_when(HomeTeam == "New York Islanders" ~ 1, HomeTeam != "New York Islanders" ~ 0)
+  ,HomeTeamNew.York.Rangers = case_when(HomeTeam == "New York Rangers" ~ 1, HomeTeam != "New York Rangers" ~ 0)
+  ,HomeTeamOttawa.Senators = case_when(HomeTeam == "Ottawa Senators" ~ 1, HomeTeam != "Ottawa Senators" ~ 0)
+  ,HomeTeamPhiladelphia.Flyers = case_when(HomeTeam == "Philadelphia Flyers" ~ 1, HomeTeam != "Philadelphia Flyers" ~ 0)
+  ,HomeTeamPittsburgh.Penguins = case_when(HomeTeam == "Pittsburgh Penguins" ~ 1, HomeTeam != "Pittsburgh Penguins" ~ 0)
+  ,HomeTeamSan.Jose.Sharks = case_when(HomeTeam == "San Jose Sharks" ~ 1, HomeTeam != "San Jose Sharks" ~ 0)
+  ,HomeTeamSeattle.Kraken = case_when(HomeTeam == "Seattle Kraken" ~ 1, HomeTeam != "Seattle Kraken" ~ 0)
+  ,HomeTeamSt..Louis.Blues = case_when(HomeTeam == "St. Louis Blues" ~ 1, HomeTeam != "St. Louis Blues" ~ 0)
+  ,HomeTeamTampa.Bay.Lightning = case_when(HomeTeam == "Tampa Bay Lightning" ~ 1, HomeTeam != "Tampa Bay Lightning" ~ 0)
+  ,HomeTeamToronto.Maple.Leafs = case_when(HomeTeam == "Toronto Maple Leafs" ~ 1, HomeTeam != "Toronto Maple Leafs" ~ 0)
+  ,HomeTeamVancouver.Canucks = case_when(HomeTeam == "Vancouver Canucks" ~ 1, HomeTeam != "Vancouver Canucks" ~ 0)
+  ,HomeTeamVegas.Golden.Knights = case_when(HomeTeam == "Vegas Golden Knights" ~ 1, HomeTeam != "Vegas Golden Knights" ~ 0)
+  ,HomeTeamWashington.Capitals = case_when(HomeTeam == "Washington Capitals" ~ 1, HomeTeam != "Washington Capitals" ~ 0)
+  ,HomeTeamWinnipeg.Jets = case_when(HomeTeam == "Winnipeg Jets" ~ 1, HomeTeam != "Winnipeg Jets" ~ 0)
+  ,AwayTeamAnaheim.Ducks = case_when(AwayTeam == "Anaheim Ducks" ~ 1, AwayTeam != "Anaheim Ducks" ~ 0)
+  ,AwayTeamArizona.Coyotes = case_when(AwayTeam == "Arizona Coyotes" | AwayTeam =="Utah Hockey Club" ~ 1, AwayTeam != "Arizona Coyotes" | AwayTeam !="Utah Hockey Club" ~ 0)
+  ,AwayTeamBoston.Bruins = case_when(AwayTeam == "Boston Bruins" ~ 1, AwayTeam != "Boston Bruins" ~ 0)
+  ,AwayTeamBuffalo.Sabres = case_when(AwayTeam == "Buffalo Sabres" ~ 1, AwayTeam != "Buffalo Sabres" ~ 0)
+  ,AwayTeamCalgary.Flames = case_when(AwayTeam == "Calgary Flames" ~ 1, AwayTeam != "Calgary Flames" ~ 0)
+  ,AwayTeamCarolina.Hurricanes = case_when(AwayTeam == "Carolina Hurricanes" ~ 1, AwayTeam != "Carolina Hurricanes" ~ 0)
+  ,AwayTeamChicago.Blackhawks = case_when(AwayTeam == "Chicago Blackhawks" ~ 1, AwayTeam != "Chicago Blackhawks" ~ 0)
+  ,AwayTeamColorado.Avalanche = case_when(AwayTeam == "Colorado.Avalanche" ~ 1, AwayTeam != "Colorado.Avalanche" ~ 0)
+  ,AwayTeamColumbus.Blue.Jackets = case_when(AwayTeam == "Columbus Blue Jackets" ~ 1, AwayTeam != "Columbus Blue Jackets" ~ 0)
+  ,AwayTeamDallas.Stars = case_when(AwayTeam == "Dallas Stars" ~ 1, AwayTeam != "Dallas Stars" ~ 0)
+  ,AwayTeamDetroit.Red.Wings = case_when(AwayTeam == "Detroit Red Wings" ~ 1, AwayTeam != "Detroit Red Wings" ~ 0)
+  ,AwayTeamEdmonton.Oilers = case_when(AwayTeam == "Edmonton Oilers" ~ 1, AwayTeam != "Edmonton Oilers" ~ 0)
+  ,AwayTeamFlorida.Panthers = case_when(AwayTeam == "Florida Panthers" ~ 1, AwayTeam != "Florida Panthers" ~ 0)
+  ,AwayTeamLos.Angeles.Kings = case_when(AwayTeam == "Los Angeles Kings" ~ 1, AwayTeam != "Los Angeles Kings" ~ 0)
+  ,AwayTeamMinnesota.Wild = case_when(AwayTeam == "Minnesota Wild" ~ 1, AwayTeam != "Minnesota Wild" ~ 0)
+  ,AwayTeamMontréal.Canadiens = case_when(AwayTeam == "Montréal Canadiens" ~ 1, AwayTeam != "Montréal Canadiens" ~ 0)
+  ,AwayTeamNashville.Predators = case_when(AwayTeam == "Nashville Predators" ~ 1, AwayTeam != "Nashville Predators" ~ 0)
+  ,AwayTeamNew.Jersey.Devils = case_when(AwayTeam == "New Jersey Devils" ~ 1, AwayTeam != "New Jersey Devils" ~ 0)
+  ,AwayTeamNew.York.Islanders = case_when(AwayTeam == "New York Islanders" ~ 1, AwayTeam != "New York Islanders" ~ 0)
+  ,AwayTeamNew.York.Rangers = case_when(AwayTeam == "New York Rangers" ~ 1, AwayTeam != "New York Rangers" ~ 0)
+  ,AwayTeamOttawa.Senators = case_when(AwayTeam == "Ottawa Senators" ~ 1, AwayTeam != "Ottawa Senators" ~ 0)
+  ,AwayTeamPhiladelphia.Flyers = case_when(AwayTeam == "Philadelphia Flyers" ~ 1, AwayTeam != "Philadelphia Flyers" ~ 0)
+  ,AwayTeamPittsburgh.Penguins = case_when(AwayTeam == "Pittsburgh Penguins" ~ 1, AwayTeam != "Pittsburgh Penguins" ~ 0)
+  ,AwayTeamSan.Jose.Sharks = case_when(AwayTeam == "San Jose Sharks" ~ 1, AwayTeam != "San Jose Sharks" ~ 0)
+  ,AwayTeamSeattle.Kraken = case_when(AwayTeam == "Seattle Kraken" ~ 1, AwayTeam != "Seattle Kraken" ~ 0)
+  ,AwayTeamSt..Louis.Blues = case_when(AwayTeam == "St. Louis Blues" ~ 1, AwayTeam != "St. Louis Blues" ~ 0)
+  ,AwayTeamTampa.Bay.Lightning = case_when(AwayTeam == "Tampa Bay Lightning" ~ 1, AwayTeam != "Tampa Bay Lightning" ~ 0)
+  ,AwayTeamToronto.Maple.Leafs = case_when(AwayTeam == "Toronto Maple Leafs" ~ 1, AwayTeam != "Toronto Maple Leafs" ~ 0)
+  ,AwayTeamVancouver.Canucks = case_when(AwayTeam == "Vancouver Canucks" ~ 1, AwayTeam != "Vancouver Canucks" ~ 0)
+  ,AwayTeamVegas.Golden.Knights = case_when(AwayTeam == "Vegas Golden Knights" ~ 1, AwayTeam != "Vegas Golden Knights" ~ 0)
+  ,AwayTeamWashington.Capitals = case_when(AwayTeam == "Washington Capitals" ~ 1, AwayTeam != "Washington Capitals" ~ 0)
+  ,AwayTeamWinnipeg.Jets = case_when(AwayTeam == "Winnipeg Jets" ~ 1, AwayTeam != "Winnipeg Jets" ~ 0)
+)
+
+#subtract home vs away to get a combined informative stat
+TotalPredictionData_Final_v2 <- TotalPredictionData_Final %>% mutate(
+  fo_avg_diff = home_fo_avg - away_fo_avg
+  ,fow_avg_diff = home_fow_avg - away_fow_avg
+  ,fol_avg_diff = home_fol_avg - away_fol_avg
+  ,`fow%_diff` = `home_fow%` - `away_fow%`
+  ,ev_fo_avg_diff = home_ev_fo_avg - away_ev_fo_avg
+  ,ev_fow_avg_diff = home_ev_fow_avg - away_ev_fow_avg
+  ,ev_fol_avg_diff = home_ev_fol_avg - away_ev_fol_avg
+  ,`ev_fow%_diff` = `home_ev_fow%` - `away_ev_fow%`
+  ,pp_fo_avg_diff = home_pp_fo_avg - away_pp_fo_avg
+  ,pp_fow_avg_diff = home_pp_fow_avg - away_pp_fow_avg
+  ,pp_fol_avg_diff = home_pp_fol_avg - away_pp_fol_avg
+  ,`pp_fow%_diff` = `home_pp_fow%` - `away_pp_fow%`
+  ,sh_fo_avg_diff = home_sh_fo_avg - away_sh_fo_avg
+  ,sh_fow_avg_diff = home_sh_fow_avg - away_sh_fow_avg
+  ,sh_fol_avg_diff = home_sh_fol_avg - away_sh_fol_avg
+  ,`sh_fow%_diff` = `home_sh_fow%` - `away_sh_fow%`
+  ,oz_fo_avg_diff = home_oz_fo_avg - away_oz_fo_avg
+  ,oz_fow_avg_diff = home_oz_fow_avg - away_oz_fow_avg
+  ,oz_fol_avg_diff = home_oz_fol_avg - away_oz_fol_avg
+  ,`oz_fow%_diff` = `home_oz_fow%` - `away_oz_fow%`
+  ,nz_fo_avg_diff = home_nz_fo_avg - away_nz_fo_avg
+  ,nz_fow_avg_diff = home_nz_fow_avg - away_nz_fow_avg
+  ,nz_fol_avg_diff = home_nz_fol_avg - away_nz_fol_avg
+  ,`nz_fow%_diff` = `home_nz_fow%` - `away_nz_fow%`
+  ,dz_fo_avg_diff = home_dz_fo_avg - away_dz_fo_avg
+  ,dz_fow_avg_diff = home_dz_fow_avg - away_dz_fow_avg
+  ,dz_fol_avg_diff = home_dz_fol_avg - away_dz_fol_avg
+  ,`dz_fow%_diff` = `home_dz_fow%` - `away_dz_fow%`
+  ,shots_avg_diff = home_shots_avg - away_shots_avg
+  ,shots_against_avg_diff = home_shots_against_avg - away_shots_against_avg
+  ,sat_for_avg_diff = home_sat_for_avg - away_sat_for_avg
+  ,sat_against_avg_diff = home_sat_against_avg - away_sat_against_avg
+  ,sat_avg_diff = home_sat_avg - away_sat_avg
+  ,sat_total_diff = home_sat_total - away_sat_total
+  ,sat_tied_avg_diff = home_sat_tied_avg - away_sat_tied_avg
+  ,sat_tied_total_diff = home_sat_tied_total - away_sat_tied_total
+  ,sat_ahead_avg_diff = home_sat_ahead_avg - away_sat_ahead_avg
+  ,sat_ahead_total_diff = home_sat_ahead_total - away_sat_ahead_total
+  ,sat_behind_avg_diff = home_sat_behind_avg - away_sat_behind_avg
+  ,sat_behind_total_diff = home_sat_behind_total - away_sat_behind_total
+  ,sat_close_avg_diff = home_sat_close_avg - away_sat_close_avg
+  ,sat_close_total_diff = home_sat_close_total - away_sat_close_total
+  ,usat_for_avg_diff = home_usat_for_avg - away_usat_for_avg
+  ,usat_against_avg_diff = home_usat_against_avg - away_usat_against_avg
+  ,usat_avg_diff = home_usat_avg - away_usat_avg
+  ,usat_total_diff = home_usat_total - away_usat_total
+  ,usat_tied_avg_diff = home_usat_tied_avg - away_usat_tied_avg
+  ,usat_tied_total_diff = home_usat_tied_total - away_usat_tied_total
+  ,usat_ahead_avg_diff = home_usat_ahead_avg - away_usat_ahead_avg
+  ,usat_ahead_total_diff = home_usat_ahead_total - away_usat_ahead_total
+  ,usat_behind_avg_diff = home_usat_behind_avg - away_usat_behind_avg
+  ,usat_behind_total_diff = home_usat_behind_total - away_usat_behind_total
+  ,usat_close_avg_diff = home_usat_close_avg - away_usat_close_avg
+  ,usat_close_total_diff = home_usat_close_total - away_usat_close_total
+  ,gf_avg_diff = home_gf_avg - away_gf_avg
+  ,ga_avg_diff = home_ga_avg - away_ga_avg
+  ,goal_diff_avg_diff = home_goal_diff_avg - away_goal_diff_avg
+  ,goal_diff_total_diff = home_goal_diff_total - away_goal_diff_total
+  ,ev_gf_avg_diff = home_ev_gf_avg - away_ev_gf_avg
+  ,ev_ga_avg_diff = home_ev_ga_avg - away_ev_ga_avg
+  ,ev_goal_diff_avg_diff = home_ev_goal_diff_avg - away_ev_goal_diff_avg
+  ,ev_goal_diff_total_diff = home_ev_goal_diff_total - away_ev_goal_diff_total
+  ,pp_gf_avg_diff = home_pp_gf_avg - away_pp_gf_avg
+  ,pp_ga_avg_diff = home_pp_ga_avg - away_pp_ga_avg
+  ,pp_goal_diff_avg_diff = home_pp_goal_diff_avg - away_pp_goal_diff_avg
+  ,pp_goal_diff_total_diff = home_pp_goal_diff_total - away_pp_goal_diff_total
+  ,sh_gf_avg_diff = home_sh_gf_avg - away_sh_gf_avg
+  ,sh_ga_avg_diff = home_sh_ga_avg - away_sh_ga_avg
+  ,sh_goal_diff_avg_diff = home_sh_goal_diff_avg - away_sh_goal_diff_avg
+  ,sh_goal_diff_total_diff = home_sh_goal_diff_total - away_sh_goal_diff_total
+  ,gf_in_p1_avg_diff = home_gf_in_p1_avg - away_gf_in_p1_avg
+  ,ga_in_p1_avg_diff = home_ga_in_p1_avg - away_ga_in_p1_avg
+  ,goal_in_p1_diff_avg_diff = home_goal_in_p1_diff_avg - away_goal_in_p1_diff_avg
+  ,goal_in_p1_diff_total_diff = home_goal_in_p1_diff_total - away_goal_in_p1_diff_total
+  ,gf_in_p2_avg_diff = home_gf_in_p2_avg - away_gf_in_p2_avg
+  ,ga_in_p2_avg_diff = home_ga_in_p2_avg - away_ga_in_p2_avg
+  ,goal_in_p2_diff_avg_diff = home_goal_in_p2_diff_avg - away_goal_in_p2_diff_avg
+  ,goal_in_p2_diff_total_diff = home_goal_in_p2_diff_total - away_goal_in_p2_diff_total
+  ,gf_in_p3_avg_diff = home_gf_in_p3_avg - away_gf_in_p3_avg
+  ,ga_in_p3_avg_diff = home_ga_in_p3_avg - away_ga_in_p3_avg
+  ,goal_in_p3_diff_avg_diff = home_goal_in_p3_diff_avg - away_goal_in_p3_diff_avg
+  ,goal_in_p3_diff_total_diff = home_goal_in_p3_diff_total - away_goal_in_p3_diff_total
+  ,gf_in_ot_avg_diff = home_gf_in_ot_avg - away_gf_in_ot_avg
+  ,ga_in_ot_avg_diff = home_ga_in_ot_avg - away_ga_in_ot_avg
+  ,goal_in_ot_diff_avg_diff = home_goal_in_ot_diff_avg - away_goal_in_ot_diff_avg
+  ,goal_in_ot_diff_total_diff = home_goal_in_ot_diff_total - away_goal_in_ot_diff_total
+  ,`5v5_TOI_avg_diff` = home_5v5_TOI_avg - away_5v5_TOI_avg
+  ,hits_for_avg_diff = home_hits_for_avg - away_hits_for_avg
+  ,hits_agst_avg_diff = home_hits_agst_avg - away_hits_agst_avg
+  ,hits_diff_avg_diff = home_hits_diff_avg - away_hits_diff_avg
+  ,hits_diff_total_diff = home_hits_diff_total - away_hits_diff_total
+  ,blks_for_avg_diff = home_blks_for_avg - away_blks_for_avg
+  ,blks_agst_avg_diff = home_blks_agst_avg - away_blks_agst_avg
+  ,blks_diff_avg_diff = home_blks_diff_avg - away_blks_diff_avg
+  ,blks_diff_total_diff = home_blks_diff_total - away_blks_diff_total
+  ,GvA_avg_diff = home_GvA_avg - away_GvA_avg
+  ,TkA_avg_diff = home_TkA_avg - away_TkA_avg
+  ,ENG_avg_diff = home_ENG_avg - away_ENG_avg
+  ,ENG_opp_avg_diff = home_ENG_opp_avg - away_ENG_opp_avg
+  ,MsS_avg_diff = home_MsS_avg - away_MsS_avg
+  ,PP_Opp_avg_diff = home_PP_Opp_avg - away_PP_Opp_avg
+  ,`PP%_diff` = `home_PP%` - `away_PP%`
+  ,PP_Opp_agnst_avg_diff = home_PP_Opp_agnst_avg - away_PP_Opp_agnst_avg
+  ,`PenaltyKill%_diff` = `home_PenatlyKill%` - `away_PenatlyKill%`
+  ,W_diff = home_W - away_W
+  ,L_diff = home_L - away_L
+  ,OT_diff = home_OT - away_OT
+  ,Pts_diff = home_Pts - away_Pts
+  ,`Pt%_diff` = `home_Pt%` - `away_Pt%`
+  ,SO_diff = home_SO - away_SO
+  ,OT_win_diff = home_OT_win - away_OT_win
+  ,days_since_last_game_diff = home_days_since_last_game - away_days_since_last_game
+  ,Winning_streak_diff = home_Winning_Streak - away_Winning_Streak
+  
+  #last5 stats
+  ,fo_avg_last5_diff = home_fo_avg_last5 - away_fo_avg_last5
+  ,fow_avg_last5diff = home_fow_avg_last5 - away_fow_avg_last5
+  ,fol_avg_last5_diff = home_fol_avg_last5 - away_fol_avg_last5
+  ,`fow%_last5_diff` = `home_fow%_last5` - `away_fow%_last5`
+  ,ev_fo_avg_last5_diff = home_ev_fo_avg_last5 - away_ev_fo_avg_last5
+  ,ev_fow_avg_last5_diff = home_ev_fow_avg_last5 - away_ev_fow_avg_last5
+  ,ev_fol_avg_last5_diff = home_ev_fol_avg_last5 - away_ev_fol_avg_last5
+  ,`ev_fow%_last5_diff` = `home_ev_fow%_last5` - `away_ev_fow%_last5`
+  ,pp_fo_avg_last5_diff = home_pp_fo_avg_last5 - away_pp_fo_avg_last5
+  ,pp_fow_avg_last5_diff = home_pp_fow_avg_last5 - away_pp_fow_avg_last5
+  ,pp_fol_avg_last5_diff = home_pp_fol_avg_last5 - away_pp_fol_avg_last5
+  ,`pp_fow%_last5_diff` = `home_pp_fow%_last5` - `away_pp_fow%_last5`
+  ,sh_fo_avg_last5_diff = home_sh_fo_avg_last5 - away_sh_fo_avg_last5
+  ,sh_fow_avg_last5_diff = home_sh_fow_avg_last5 - away_sh_fow_avg_last5
+  ,sh_fol_avg_last5_diff = home_sh_fol_avg_last5 - away_sh_fol_avg_last5
+  ,`sh_fow%_last5_diff` = `home_sh_fow%_last5` - `away_sh_fow%_last5`
+  ,oz_fo_avg_last5_diff = home_oz_fo_avg_last5 - away_oz_fo_avg_last5
+  ,oz_fow_avg_last5_diff = home_oz_fow_avg_last5 - away_oz_fow_avg_last5
+  ,oz_fol_avg_last5_diff = home_oz_fol_avg_last5 - away_oz_fol_avg_last5
+  ,`oz_fow%_last5_diff` = `home_oz_fow%_last5` - `away_oz_fow%_last5`
+  ,nz_fo_avg_last5_diff = home_nz_fo_avg_last5 - away_nz_fo_avg_last5
+  ,nz_fow_avg_last5_diff = home_nz_fow_avg_last5 - away_nz_fow_avg_last5
+  ,nz_fol_avg_last5_diff = home_nz_fol_avg_last5 - away_nz_fol_avg_last5
+  ,`nz_fow%_last5_diff` = `home_nz_fow%_last5` - `away_nz_fow%_last5`
+  ,dz_fo_avg_last5_diff = home_dz_fo_avg_last5 - away_dz_fo_avg_last5
+  ,dz_fow_avg_last5_diff = home_dz_fow_avg_last5 - away_dz_fow_avg_last5
+  ,dz_fol_avg_last5_diff = home_dz_fol_avg_last5 - away_dz_fol_avg_last5
+  ,`dz_fow%_last5_diff` = `home_dz_fow%_last5` - `away_dz_fow%_last5`
+  ,shots_avg_last5_diff = home_shots_avg_last5 - away_shots_avg_last5
+  ,shots_against_avg_last5_diff = home_shots_against_avg_last5 - away_shots_against_avg_last5
+  ,sat_for_avg_last5_diff = home_sat_for_avg_last5 - away_sat_for_avg_last5
+  ,sat_against_avg_last5_diff = home_sat_against_avg_last5 - away_sat_against_avg_last5
+  ,sat_avg_last5_diff = home_sat_avg_last5 - away_sat_avg_last5
+  ,sat_total_last5_diff = home_sat_total_last5 - away_sat_total_last5
+  ,sat_tied_avg_last5_diff = home_sat_tied_avg_last5 - away_sat_tied_avg_last5
+  ,sat_tied_total_last5_diff = home_sat_tied_total_last5 - away_sat_tied_total_last5
+  ,sat_ahead_avg_last5_diff = home_sat_ahead_avg_last5 - away_sat_ahead_avg_last5
+  ,sat_ahead_total_last5_diff = home_sat_ahead_total_last5 - away_sat_ahead_total_last5
+  ,sat_behind_avg_last5_diff = home_sat_behind_avg_last5 - away_sat_behind_avg_last5
+  ,sat_behind_total_last5_diff = home_sat_behind_total_last5 - away_sat_behind_total_last5
+  ,sat_close_avg_last5_diff = home_sat_close_avg_last5 - away_sat_close_avg_last5
+  ,sat_close_total_last5_diff = home_sat_close_total_last5 - away_sat_close_total_last5
+  ,usat_for_avg_last5_diff = home_usat_for_avg_last5 - away_usat_for_avg_last5
+  ,usat_against_avg_last5_diff = home_usat_against_avg_last5 - away_usat_against_avg_last5
+  ,usat_avg_last5_diff = home_usat_avg_last5 - away_usat_avg_last5
+  ,usat_total_last5_diff = home_usat_total_last5 - away_usat_total_last5
+  ,usat_tied_avg_last5_diff = home_usat_tied_avg_last5 - away_usat_tied_avg_last5
+  ,usat_tied_total_last5_diff = home_usat_tied_total_last5 - away_usat_tied_total_last5
+  ,usat_ahead_avg_last5_diff = home_usat_ahead_avg_last5 - away_usat_ahead_avg_last5
+  ,usat_ahead_total_last5_diff = home_usat_ahead_total_last5 - away_usat_ahead_total_last5
+  ,usat_behind_avg_last5_diff = home_usat_behind_avg_last5 - away_usat_behind_avg_last5
+  ,usat_behind_total_last5_diff = home_usat_behind_total_last5 - away_usat_behind_total_last5
+  ,usat_close_avg_last5_diff = home_usat_close_avg_last5 - away_usat_close_avg_last5
+  ,usat_close_total_last5_diff = home_usat_close_total_last5 - away_usat_close_total_last5
+  ,gf_avg_last5_diff = home_gf_avg_last5 - away_gf_avg_last5
+  ,ga_avg_last5_diff = home_ga_avg_last5 - away_ga_avg_last5
+  ,goal_diff_avg_last5_diff = home_goal_diff_avg_last5 - away_goal_diff_avg_last5
+  ,goal_diff_total_last5_diff = home_goal_diff_total_last5 - away_goal_diff_total_last5
+  ,ev_gf_avg_last5_diff = home_ev_gf_avg_last5 - away_ev_gf_avg_last5
+  ,ev_ga_avg_last5_diff = home_ev_ga_avg_last5 - away_ev_ga_avg_last5
+  ,ev_goal_diff_avg_last5_diff = home_ev_goal_diff_avg_last5 - away_ev_goal_diff_avg_last5
+  ,ev_goal_diff_total_last5_diff = home_ev_goal_diff_total_last5 - away_ev_goal_diff_total_last5
+  ,pp_gf_avg_last5_diff = home_pp_gf_avg_last5 - away_pp_gf_avg_last5
+  ,pp_ga_avg_last5_diff = home_pp_ga_avg_last5 - away_pp_ga_avg_last5
+  ,pp_goal_diff_avg_last5_diff = home_pp_goal_diff_avg_last5 - away_pp_goal_diff_avg_last5
+  ,pp_goal_diff_total_last5_diff = home_pp_goal_diff_total_last5 - away_pp_goal_diff_total_last5
+  ,sh_gf_avg_last5_diff = home_sh_gf_avg_last5 - away_sh_gf_avg_last5
+  ,sh_ga_avg_last5_diff = home_sh_ga_avg_last5 - away_sh_ga_avg_last5
+  ,sh_goal_diff_avg_last5_diff = home_sh_goal_diff_avg_last5 - away_sh_goal_diff_avg_last5
+  ,sh_goal_diff_total_last5_diff = home_sh_goal_diff_total_last5 - away_sh_goal_diff_total_last5
+  ,gf_in_p1_avg_last5_diff = home_gf_in_p1_avg_last5 - away_gf_in_p1_avg_last5
+  ,ga_in_p1_avg_last5_diff = home_ga_in_p1_avg_last5 - away_ga_in_p1_avg_last5
+  ,goal_in_p1_diff_avg_last5_diff = home_goal_in_p1_diff_avg_last5 - away_goal_in_p1_diff_avg_last5
+  ,goal_in_p1_diff_total_last5_diff = home_goal_in_p1_diff_total_last5 - away_goal_in_p1_diff_total_last5
+  ,gf_in_p2_avg_last5_diff = home_gf_in_p2_avg_last5 - away_gf_in_p2_avg_last5
+  ,ga_in_p2_avg_last5_diff = home_ga_in_p2_avg_last5 - away_ga_in_p2_avg_last5
+  ,goal_in_p2_diff_avg_last5_diff = home_goal_in_p2_diff_avg_last5 - away_goal_in_p2_diff_avg_last5
+  ,goal_in_p2_diff_total_last5_diff = home_goal_in_p2_diff_total_last5 - away_goal_in_p2_diff_total_last5
+  ,gf_in_p3_avg_last5_diff = home_gf_in_p3_avg_last5 - away_gf_in_p3_avg_last5
+  ,ga_in_p3_avg_last5_diff = home_ga_in_p3_avg_last5 - away_ga_in_p3_avg_last5
+  ,goal_in_p3_diff_avg_last5_diff = home_goal_in_p3_diff_avg_last5 - away_goal_in_p3_diff_avg_last5
+  ,goal_in_p3_diff_total_last5_diff = home_goal_in_p3_diff_total_last5 - away_goal_in_p3_diff_total_last5
+  ,gf_in_ot_avg_last5_diff = home_gf_in_ot_avg_last5 - away_gf_in_ot_avg_last5
+  ,ga_in_ot_avg_last5_diff = home_ga_in_ot_avg_last5 - away_ga_in_ot_avg_last5
+  ,goal_in_ot_diff_avg_last5_diff = home_goal_in_ot_diff_avg_last5 - away_goal_in_ot_diff_avg_last5
+  ,goal_in_ot_diff_total_last5_diff = home_goal_in_ot_diff_total_last5 - away_goal_in_ot_diff_total_last5
+  ,`5v5_TOI_avg_last5_diff` = home_5v5_TOI_avg_last5 - away_5v5_TOI_avg_last5
+  ,hits_for_avg_last5_diff = home_hits_for_avg_last5 - away_hits_for_avg_last5
+  ,hits_agst_avg_last5_diff = home_hits_agst_avg_last5 - away_hits_agst_avg_last5
+  ,hits_diff_avg_last5_diff = home_hits_diff_avg_last5 - away_hits_diff_avg_last5
+  ,hits_diff_total_last5_diff = home_hits_diff_total_last5 - away_hits_diff_total_last5
+  ,blks_for_avg_last5_diff = home_blks_for_avg_last5 - away_blks_for_avg_last5
+  ,blks_agst_avg_last5_diff = home_blks_agst_avg_last5 - away_blks_agst_avg_last5
+  ,blks_diff_avg_last5_diff = home_blks_diff_avg_last5 - away_blks_diff_avg_last5
+  ,blks_diff_total_last5_diff = home_blks_diff_total_last5 - away_blks_diff_total_last5
+  ,GvA_avg_last5_diff = home_GvA_avg_last5 - away_GvA_avg_last5
+  ,TkA_avg_last5_diff = home_TkA_avg_last5 - away_TkA_avg_last5
+  ,ENG_avg_last5_diff = home_ENG_avg_last5 - away_ENG_avg_last5
+  ,ENG_opp_avg_last5_diff = home_ENG_opp_avg_last5 - away_ENG_opp_avg_last5
+  ,MsS_avg_last5_diff = home_MsS_avg_last5 - away_MsS_avg_last5
+  ,PP_Opp_avg_last5_diff = home_PP_Opp_avg_last5 - away_PP_Opp_avg_last5
+  ,`PP%_last5_diff` = `home_PP%_last5` - `away_PP%_last5`
+  ,PP_Opp_agnst_avg_last5_diff = home_PP_Opp_agnst_avg_last5 - away_PP_Opp_agnst_avg_last5
+  ,`PenaltyKill%_last5_diff` = `home_PenatlyKill%_last5` - `away_PenatlyKill%_last5`
+  ,W_last5_diff = home_W_last5 - away_W_last5
+  ,L_last5_diff = home_L_last5 - away_L_last5
+  ,OT_last5_diff = home_OT_last5 - away_OT_last5
+  ,Pts_last5_diff = home_Pts_last5 - away_Pts_last5
+  ,`Pt%_last5_diff` = `home_Pt%_last5` - `away_Pt%_last5`
+  ,SO_last5_diff = home_SO_last5 - away_SO_last5
+  ,OT_win_last5_diff = home_OT_win_last5 - away_OT_win_last5
+  
+)
+
+```
+
+
+```{r}
+#Make Predictions
+GameData <- TotalPredictionData_Final_v2 %>% 
+  select(-c(GameKey, Date, HomeTeam, AwayTeam, Season, Total_Goals))
+
+
+load("Hockey_Prediction_Model.RData")
+load("SVM_Model.RData")
+
+
+
+#SVM predictions
+svm_preds <- predict(classifier_prob, GameData 
+                     , probability = TRUE
+                     )
+
+predict_probs <-data.frame( attr(svm_preds, "probabilities")) %>% rename("SVM_Home" = X1, "SVM_Away" = X0)
+
+predict_probs <- predict_probs %>% mutate(predictSVM_HomeTeamWin = case_when(SVM_Home >= 0.5 ~ 1, SVM_Home < 0.5 ~ 0))
+
+
+#XGBoost predictions
+dtest <- xgb.DMatrix(data = as.matrix(GameData %>% select(-HomeTeamWin)), label = GameData$HomeTeamWin)
+
+boost_preds <- predict(bst_final, dtest)
+
+boost_pred_class <- rep(0, length(boost_preds))
+boost_pred_class[boost_preds >= 0.5] <- 1
+
+
+TotalPredictions <- cbind(GameKey = TotalPredictionData_Final_v2$GameKey, predict_probs, boost_pred_class, boost_preds) %>% select(GameKey, SVM_Home, boost_preds_Home = boost_preds)
+
+
+
+
+
+
+ 
+```
+
+
+
+
+
+
+```{r}
+load("Clean2024_2025_Data.RData")
+```
+
+
+```{r}
+#Boston Bruins  @  Buffalo Sabres   2014-10-18
+#Arizona Coyotes @ Dallas Stars 2024-03-20
+
+#Need to adjust gamekey for spaces and Montreal's accent
+library(stringr)
+library(stringi)
+
+Clean2024_2025_Data_2 <-
+left_join(Clean2024_2025_Data,
+TotalPredictions %>% mutate(GameKey = str_squish(GameKey)) %>% mutate(GameKey = stri_trans_general(str = GameKey, id = "Latin-ASCII")),
+by = join_by(GameKey)
+)
+```
+
+
+```{r}
+save(Clean2024_2025_Data_2, file = "Clean2024_2025_Data_2.RData")
+```
+
+
+
