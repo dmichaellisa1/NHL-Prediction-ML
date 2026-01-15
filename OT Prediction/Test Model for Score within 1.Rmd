@@ -1,0 +1,774 @@
+
+```{r}
+
+library(dplyr)
+library(xgboost)
+library(OptimalCutpoints)
+library(caret)
+library(SHAPforxgboost)
+#source("a_insights_shap_functions.r")
+library(ggplot2)
+library(parallel)
+#library(xgboostExplainer)
+
+library(foreach)
+library(doParallel)
+
+```
+
+
+
+
+```{r}
+load("PredictionData-3.RData")
+```
+
+
+```{r}
+load("Goals_Data.RData")
+
+TeamInitlKey <- data.frame(Initl = c("BOS", "COL", "NSH", "LAK", "BUF", "WSH", "CHI", "SJS", "NYR", "PIT", "CAR", "WPG", "CBJ", "FLA", "ARI", "PHI", "ANA", "CGY", "NJD", "MIN", "DAL", "TOR", "MTL", "OTT", "DET", "TBL", "EDM", "VAN", "NYI", "SEA", "STL", "VGK", "UTA")
+                             , Name = c("Boston Bruins" , "Colorado Avalanche","Nashville Predators","Los Angeles Kings","Buffalo Sabres","Washington Capitals","Chicago Blackhawks","San Jose Sharks","New York Rangers" ,"Pittsburgh Penguins","Carolina Hurricanes","Winnipeg Jets","Columbus Blue Jackets", "Florida Panthers","Arizona Coyotes","Philadelphia Flyers","Anaheim Ducks","Calgary Flames","New Jersey Devils","Minnesota Wild", "Dallas Stars","Toronto Maple Leafs","Montréal Canadiens","Ottawa Senators","Detroit Red Wings","Tampa Bay Lightning","Edmonton Oilers","Vancouver Canucks","New York Islanders","Seattle Kraken","St. Louis Blues","Vegas Golden Knights", "Utah Hockey Club"))
+```
+
+```{r}
+GoalsAwayTeam <- Goals_Data[grepl("@", Goals_Data$game),]
+GoalsHomeTeam <- Goals_Data[!grepl("@", Goals_Data$game),]
+
+
+GoalsHomeTeam <- GoalsHomeTeam %>% mutate( Date =  ymd(substr(game, 1, 10))) #extract date
+GoalsHomeTeam <-  GoalsHomeTeam %>% mutate( AwayInitl = str_sub(game, start = -3)) #extract away team intl
+GoalsHomeTeam <- left_join(GoalsHomeTeam, TeamInitlKey, by = c("AwayInitl" = "Initl")) #get away team name
+
+GoalsHomeTeam <- GoalsHomeTeam %>% rename("AwayTeam" = "Name", "HomeTeam" = "team")
+
+GoalsHomeTeam <- GoalsHomeTeam %>% mutate(GameKey = paste(AwayTeam, " @ ", HomeTeam, " ", Date))
+
+
+
+GoalsAwayTeam <- GoalsAwayTeam %>% mutate( Date =  ymd(substr(game, 1, 10))) #extract date
+GoalsAwayTeam <-  GoalsAwayTeam %>% mutate( HomeInitl = str_sub(game, start = -3)) #extract home team intl
+GoalsAwayTeam <- left_join(GoalsAwayTeam, TeamInitlKey, by = c("HomeInitl" = "Initl")) #get home team name
+
+GoalsAwayTeam <- GoalsAwayTeam %>% rename("HomeTeam" = "Name", "AwayTeam" = "team")
+
+GoalsAwayTeam <- GoalsAwayTeam %>% mutate(GameKey = paste(AwayTeam, " @ ", HomeTeam, " ", Date))
+
+colnames(GoalsHomeTeam) <- c(paste("Home ", colnames(GoalsHomeTeam)))
+names(GoalsHomeTeam)[names(GoalsHomeTeam) == 'Home  GameKey'] <- 'GameKey'
+
+colnames(GoalsAwayTeam) <- c(paste("Away ", colnames(GoalsAwayTeam)))
+names(GoalsAwayTeam)[names(GoalsAwayTeam) == 'Away  GameKey'] <- 'GameKey'
+
+
+
+Goals_Joined <- merge(GoalsHomeTeam, GoalsAwayTeam, by.x = "GameKey", by.y = "GameKey") 
+
+One_Goal_Game_df <- Goals_Joined %>% select(GameKey, `Home  gf`, `Away  gf`) %>% mutate(Home_gf = as.numeric(`Home  gf`), Away_gf = as.numeric(`Away  gf`)) %>% 
+  mutate(GoalDifference = abs(Home_gf - Away_gf)) %>% 
+  mutate(One_Goal_Game = if_else(GoalDifference %in% c(1, 0), 1, 0)) %>% 
+  select(GameKey, One_Goal_Game)
+
+
+
+One_Goal_Game_df <- One_Goal_Game_df %>% mutate(GameKey = str_squish(GameKey))  %>% mutate(GameKey = stri_trans_general(str = GameKey, id = "Latin-ASCII"))
+
+
+
+TotalDataWith_OneGoal_Game <- left_join(PredictionData3,  One_Goal_Game_df, join_by(GameKey == GameKey))
+
+```
+
+
+```{r}
+sum(TotalDataWith_OneGoal_Game$One_Goal_Game) / nrow(TotalDataWith_OneGoal_Game)
+```
+
+```{r}
+#Create weighted 80/20 split
+set.seed(42)
+train.index <- createDataPartition(TotalDataWith_OneGoal_Game$One_Goal_Game, p = .8, list = FALSE)
+train_db <- TotalDataWith_OneGoal_Game[ train.index,]
+test_db  <- TotalDataWith_OneGoal_Game[-train.index,]
+
+summary(as.factor(train_db$One_Goal_Game))
+summary(as.factor(test_db$One_Goal_Game))
+```
+
+
+```{r}
+2863/(2863+3836)
+
+694 /(694 +980 )
+```
+```{r}
+train_db <- train_db %>% select(-GameKey, -Season, -AwayTeam, -HomeTeam, -AwayGameNumber, -HomeGameNumber, -Date) 
+
+test_db <- test_db %>% select(-GameKey, -Season, -AwayTeam, -HomeTeam, -AwayGameNumber, -HomeGameNumber, -Date) 
+```
+
+#### Preparing for XGBoost
+```{r}
+dtrain <- xgb.DMatrix(data = as.matrix(train_db %>% select(-OT, -One_Goal_Game)), label = train_db$One_Goal_Game)
+dtest <- xgb.DMatrix(data = as.matrix(test_db %>% select(-OT, -One_Goal_Game)), label = test_db$One_Goal_Game)
+```
+
+
+
+
+
+Quick Test
+
+```{r}
+set.seed(42)
+initial_mod <- xgboost(data = dtrain, # Set training data
+               
+               nrounds = 100, # Set number of rounds
+               
+               verbose = 1, # 1 - Prints out fit
+               print_every_n = 20, # Prints out result every 20th iteration
+               
+               ,scale_pos_weight = 1 ,#(1/0.23),
+ 
+               
+               objective = "binary:logistic", # Set objective
+               eval_metric = "error",
+               eval_metric = "aucpr") # Set evaluation metric to use
+
+
+boost_preds <- predict(initial_mod, dtest) # Create predictions for xgboost model
+
+#check error
+err <- mean(as.numeric(boost_preds > 0.5) != test_db$OT)
+
+#current error is 0.4432624....
+#so we immediately can predict to a 55% accuracy
+#reduced to 0.44188... after strat sampling
+
+```
+
+```{r}
+boost_preds <- predict(initial_mod, dtrain) # Create predictions for xgboost model
+# Join predictions and actual
+pred_dat <- cbind.data.frame(boost_preds , train_db$One_Goal_Game)
+names(pred_dat) <- c("predictions", "response")
+oc<- optimal.cutpoints(X = "predictions",
+                       status = "response",
+                       tag.healthy = 0,
+                       data = pred_dat,
+                       methods = "MaxEfficiency")
+
+boost_preds_1 <- predict(initial_mod, dtest) # Create predictions for xgboost model
+
+pred_dat <- cbind.data.frame(boost_preds_1 , test_db$One_Goal_Game)#
+# Convert predictions to classes, using optimal cut-off
+boost_pred_class <- rep(0, length(boost_preds_1))
+boost_pred_class[boost_preds_1 >= oc$MaxEfficiency$Global$optimal.cutoff$cutoff[1]] <- 1
+
+
+t <- table(boost_pred_class, actual = test_db$One_Goal_Game) # Create table
+confusionMatrix(t, positive = "1") # Produce confusion matrix
+```
+
+
+
+
+#Parameter Tuning grid search
+
+```{r}
+tuning_grid <- expand.grid(
+    eta = c(0.1, 0.05, 0.3)
+  , scale_pos_weight = c(1, 5, 10)
+  #, nrounds = seq(100, 1000, by = 50)
+  , max_depth_vals = c(3, 7, 10, 25)
+  , min_child_weight = c(1, 5, 10, 20, 30)
+  , gamma_vals = c(0, 0.05, 0.1, 0.2)
+  , subsample = c(0.5, 0.7, 1)
+  , colsample_by_tree = c(0.5, 0.7, 1)
+  
+)
+```
+
+
+Using foreach
+```{r}
+
+
+start.time <- Sys.time()
+
+cl <- makeCluster(12) #number of cores
+
+registerDoParallel(cl)
+
+ParametersResults <- foreach(i = 1:nrow(tuning_grid), .combine = "rbind", .packages = c("xgboost", "dplyr")) %dopar%  {
+  
+  dtrain <- xgb.DMatrix(data = as.matrix(train_db %>% select(-OT, -One_Goal_Game)), label = train_db$One_Goal_Game)
+  
+  set.seed(42)
+bst_mod <- xgb.cv(data = dtrain, # Set training data
+              
+              nfold = 5, # Use 5 fold cross-validation
+               
+              eta = tuning_grid[i,]$eta, # Set learning rate
+              max.depth = tuning_grid[i,]$max_depth_vals, # Set max depth
+              min_child_weight = tuning_grid[i,]$min_child_weight, # Set minimum number of samples in node to split
+              gamma = tuning_grid[i,]$gamma_vals, # Set minimum loss reduction for split
+              subsample = tuning_grid[i,]$subsample, # Set proportion of training data to use in tree
+              colsample_bytree =  tuning_grid[i,]$colsample_by_tree, # Set number of variables to use in each tree
+              
+              scale_pos_weight = tuning_grid[i,]$scale_pos_weight,
+               
+              nrounds = 1500, # Set number of rounds
+              #early_stopping_rounds = 200, # Set number of rounds to stop at if there is no improvement
+               
+              verbose = 0, # 1 - Prints out fit
+              nthread = 1, # Set number of parallel threads
+             # print_every_n = 100, # Prints out result every 20th iteration
+              
+              objective = "binary:logistic", # Set objective
+              eval_metric = "aucpr"
+              #,eval_metric = "error" # Set evaluation metric to use
+)
+  
+  
+
+aucpr_max <- max(bst_mod$evaluation_log$test_aucpr_mean)
+
+round_aucpr_max <- match(aucpr_max, bst_mod$evaluation_log$test_aucpr_mean)
+
+#error_of_max_auc <- bst_mod$evaluation_log$test_error_mean[round_aucpr_max]
+
+#error_min <- min(bst_mod$evaluation_log$test_error_mean)
+
+#round_error_min <- match(error_min, bst_mod$evaluation_log$test_error_mean)
+
+#auc_of_min_error <- bst_mod$evaluation_log$test_auc_mean[round_error_min]
+
+
+data.frame(tuning_grid[i,], aucpr_max, round_aucpr_max)#, error_of_max_auc, error_min, round_error_min, auc_of_min_error)
+
+
+
+}
+
+
+stopCluster(cl)
+
+
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+
+save(ParametersResults, file = "ParametersResults-OneGoalGame-1.RData")
+```
+
+
+```{r}
+time.taken
+```
+
+
+
+```{r}
+load("ParametersResults-OneGoalGame-1.RData")
+```
+
+
+
+```{r}
+set.seed(42)
+bst_final_MaxAUCPR <- xgboost(data = dtrain, # Set training data
+              
+      
+              eta = 0.3, # Set learning rate
+              max.depth = 7, # Set max depth
+              min_child_weight = 1, # Set minimum number of samples in node to split
+              gamma = 0.0, # Set minimum loss reduction for split
+              subsample = 0.5, # Set proportion of training data to use in tree
+              colsample_bytree =  0.7, # Set number of variables to use in each tree
+              
+              scale_pos_weight = 10,
+               
+              nrounds = 145, # Set number of rounds
+              #early_stopping_rounds = 50, # Set number of rounds to stop at if there is no improvement
+               
+              verbose = 1, # 1 - Prints out fit
+              nthread = 2, # Set number of parallel threads
+              print_every_n = 20, # Prints out result every 20th iteration
+              
+              objective = "binary:logistic", # Set objective
+              eval_metric = "aucpr"
+              ) # Set evaluation metric to use
+```
+
+```{r}
+boost_preds <- predict(bst_final_MaxAUCPR, dtrain) # Create predictions for xgboost model
+# Join predictions and actual
+pred_dat <- cbind.data.frame(boost_preds , train_db$One_Goal_Game)
+names(pred_dat) <- c("predictions", "response")
+oc<- optimal.cutpoints(X = "predictions",
+                       status = "response",
+                       tag.healthy = 0,
+                       data = pred_dat,
+                       methods = "MaxProdNPVPPV")
+
+boost_preds_MaxAUCPR <- predict(bst_final_MaxAUCPR, dtest) # Create predictions for xgboost model
+
+pred_dat <- cbind.data.frame(boost_preds_MaxAUCPR , test_db$One_Goal_Game)#
+# Convert predictions to classes, using optimal cut-off
+boost_pred_class_MaxAUCPR <- rep(0, length(boost_preds_MaxAUCPR))
+boost_pred_class_MaxAUCPR[boost_preds_MaxAUCPR >= oc$MaxProdNPVPPV$Global$optimal.cutoff$cutoff[1]] <- 1
+
+boost_pred_class_MaxAUCPR[boost_preds_MaxAUCPR >= oc$MaxEfficiency$Global$optimal.cutoff$cutoff[1]] <- 1
+
+t_MaxAUCPR <- table(boost_pred_class_MaxAUCPR, actual = test_db$One_Goal_Game) # Create table
+confusionMatrix(t_MaxAUCPR, positive = "1") # Produce confusion matrix
+```
+
+
+Testing
+```{r}
+set.seed(42)
+bst_final_test <- xgboost(data = dtrain, # Set training data
+              
+      
+              eta = 0.05, # Set learning rate
+              max.depth = 3, # Set max depth
+              min_child_weight = 30, # Set minimum number of samples in node to split
+              gamma = 0.05, # Set minimum loss reduction for split
+              subsample = 0.7, # Set proportion of training data to use in tree
+              colsample_bytree =  1.0, # Set number of variables to use in each tree
+              
+              scale_pos_weight = 5,
+               
+              nrounds = 290, # Set number of rounds
+              #early_stopping_rounds = 50, # Set number of rounds to stop at if there is no improvement
+               
+              verbose = 1, # 1 - Prints out fit
+              nthread = 2, # Set number of parallel threads
+              print_every_n = 20, # Prints out result every 20th iteration
+              
+              objective = "binary:logistic", # Set objective
+              eval_metric = "aucpr"
+              ) # Set evaluation metric to use
+```
+```{r}
+boost_preds <- predict(bst_final_test, dtrain) # Create predictions for xgboost model
+# Join predictions and actual
+pred_dat <- cbind.data.frame(boost_preds , train_db$One_Goal_Game)
+names(pred_dat) <- c("predictions", "response")
+oc<- optimal.cutpoints(X = "predictions",
+                       status = "response",
+                       tag.healthy = 0,
+                       data = pred_dat,
+                       methods = "MaxEfficiency")
+
+boost_preds_test <- predict(bst_final_test, dtest) # Create predictions for xgboost model
+
+pred_dat <- cbind.data.frame(boost_preds_test , test_db$One_Goal_Game)#
+# Convert predictions to classes, using optimal cut-off
+boost_pred_class_test <- rep(0, length(boost_preds_test))
+boost_pred_class_test[boost_preds_test >= oc$MaxProdNPVPPV$Global$optimal.cutoff$cutoff[1]] <- 1
+
+boost_pred_class_test[boost_preds_test >= oc$MaxEfficiency$Global$optimal.cutoff$cutoff[1]] <- 1
+
+t_test <- table(boost_pred_class_test, actual = test_db$One_Goal_Game) # Create table
+confusionMatrix(t_test, positive = "1") # Produce confusion matrix
+```
+```{r}
+test <- confusionMatrix(t_test, positive = "1")
+
+
+test2 <- test$byClass['Pos Pred Value'] 
+
+test2
+```
+
+
+
+Training all the models and seeing best results for diifferent distributions
+
+```{r}
+
+ParametersResults_ModelResults <- ParametersResults %>% mutate(Cutoff_mean = NA
+                             ,PosPred_mean = NA
+                             ,TimesGuessed_mean = NA
+                             ,Cutoff_75 = NA
+                             ,PosPred_75 = NA
+                             ,TimesGuessed_75 = NA
+                             ,Cutoff_80 = NA
+                             ,PosPred_80 = NA
+                             ,TimesGuessed_80 = NA
+                             ,Cutoff_85 = NA
+                             ,PosPred_85 = NA
+                             ,TimesGuessed_85 = NA
+                             ,Cutoff_90 = NA
+                             ,PosPred_90 = NA
+                             ,TimesGuessed_90 = NA
+                             )
+
+for (i in 1 : nrow(ParametersResults)) {
+  
+
+  #i <- 1
+
+set.seed(42)
+bst_i <- xgboost(data = dtrain, # Set training data
+              
+      
+              eta = ParametersResults$eta[i], # Set learning rate
+              max.depth = ParametersResults$max_depth_vals[i], # Set max depth
+              min_child_weight = ParametersResults$min_child_weight[i], # Set minimum number of samples in node to split
+              gamma = ParametersResults$gamma_vals[i], # Set minimum loss reduction for split
+              subsample = ParametersResults$subsample[i], # Set proportion of training data to use in tree
+              colsample_bytree =  ParametersResults$colsample_by_tree[i], # Set number of variables to use in each tree
+              
+              scale_pos_weight = ParametersResults$scale_pos_weight[i],
+               
+              nrounds = ParametersResults$round_aucpr_max[i], # Set number of rounds
+              #early_stopping_rounds = 50, # Set number of rounds to stop at if there is no improvement
+               
+              verbose = 0, # 1 - Prints out fit
+              nthread = 2, # Set number of parallel threads
+              #print_every_n = 20, # Prints out result every 20th iteration
+              
+              objective = "binary:logistic", # Set objective
+              eval_metric = "aucpr"
+              ) # Set evaluation metric to use
+
+
+boost_preds_i <- predict(bst_i, dtrain) # Create predictions for xgboost model
+
+Mean_i <- mean(boost_preds_i)
+
+Q75_i <- unname(quantile(boost_preds_i, probs = 0.75))
+
+Q80_i <- unname(quantile(boost_preds_i, probs = 0.8))
+
+Q85_i <- unname(quantile(boost_preds_i, probs = 0.85))
+
+Q90_i <- unname(quantile(boost_preds_i, probs = 0.90))
+
+boost_preds_test_i <- predict(bst_i, dtest) # Create predictions for xgboost model
+
+pred_dat_i <- cbind.data.frame(boost_preds_test_i , test_db$One_Goal_Game)#
+
+
+#Using mean as cuttoff
+
+boost_pred_class_test_i <- rep(0, length(boost_preds_test_i))
+
+boost_pred_class_test_i[boost_preds_test_i >= Mean_i] <- 1
+
+predictions_i <- data.frame(boost_pred_class_test_i, actual = test_db$One_Goal_Game)
+
+results_i <- predictions_i %>% filter(boost_pred_class_test_i == 1) %>% summarise(predictions = sum(boost_pred_class_test_i), correct = sum(actual))
+
+PosPred_mean_i <- ifelse(results_i$predictions == 0, 0, results_i$correct/results_i$predictions)
+
+TimesGuessed_mean_i <- results_i$predictions
+
+
+
+
+
+#Using Q75 as cuttoff
+
+boost_pred_class_test_i <- rep(0, length(boost_preds_test_i))
+
+boost_pred_class_test_i[boost_preds_test_i >= Q75_i] <- 1
+
+predictions_i <- data.frame(boost_pred_class_test_i, actual = test_db$One_Goal_Game)
+
+results_i <- predictions_i %>% filter(boost_pred_class_test_i == 1) %>% summarise(predictions = sum(boost_pred_class_test_i), correct = sum(actual))
+
+PosPred_Q75_i <- ifelse(results_i$predictions == 0, 0, results_i$correct/results_i$predictions)
+
+TimesGuessed_Q75_i <- results_i$predictions
+
+
+
+
+#Using Q80 as cuttoff
+
+boost_pred_class_test_i <- rep(0, length(boost_preds_test_i))
+
+boost_pred_class_test_i[boost_preds_test_i >= Q80_i] <- 1
+
+predictions_i <- data.frame(boost_pred_class_test_i, actual = test_db$One_Goal_Game)
+
+results_i <- predictions_i %>% filter(boost_pred_class_test_i == 1) %>% summarise(predictions = sum(boost_pred_class_test_i), correct = sum(actual))
+
+PosPred_Q80_i <- ifelse(results_i$predictions == 0, 0, results_i$correct/results_i$predictions)
+
+TimesGuessed_Q80_i <- results_i$predictions
+
+
+#Using Q85 as cuttoff
+
+boost_pred_class_test_i <- rep(0, length(boost_preds_test_i))
+
+boost_pred_class_test_i[boost_preds_test_i >= Q85_i] <- 1
+
+predictions_i <- data.frame(boost_pred_class_test_i, actual = test_db$One_Goal_Game)
+
+results_i <- predictions_i %>% filter(boost_pred_class_test_i == 1) %>% summarise(predictions = sum(boost_pred_class_test_i), correct = sum(actual))
+
+PosPred_Q85_i <- ifelse(results_i$predictions == 0, 0, results_i$correct/results_i$predictions)
+
+TimesGuessed_Q85_i <- results_i$predictions
+
+
+
+
+#Using Q90 as cuttoff
+
+boost_pred_class_test_i <- rep(0, length(boost_preds_test_i))
+
+boost_pred_class_test_i[boost_preds_test_i >= Q90_i] <- 1
+
+predictions_i <- data.frame(boost_pred_class_test_i, actual = test_db$One_Goal_Game)
+
+results_i <- predictions_i %>% filter(boost_pred_class_test_i == 1) %>% summarise(predictions = sum(boost_pred_class_test_i), correct = sum(actual))
+
+PosPred_Q90_i <- ifelse(results_i$predictions == 0, 0, results_i$correct/results_i$predictions)
+
+TimesGuessed_Q90_i <- results_i$predictions
+
+
+#Record Results
+
+ParametersResults_ModelResults$Cutoff_mean[i] <- Mean_i
+ParametersResults_ModelResults$PosPred_mean[i] <- PosPred_mean_i
+ParametersResults_ModelResults$TimesGuessed_mean[i] <- TimesGuessed_mean_i
+ParametersResults_ModelResults$Cutoff_75[i] <- Q75_i
+ParametersResults_ModelResults$PosPred_75[i] <- PosPred_Q75_i
+ParametersResults_ModelResults$TimesGuessed_75[i] <- TimesGuessed_Q75_i
+ParametersResults_ModelResults$Cutoff_80[i] <- Q80_i
+ParametersResults_ModelResults$PosPred_80[i] <- PosPred_Q80_i
+ParametersResults_ModelResults$TimesGuessed_80[i] <- TimesGuessed_Q80_i
+ParametersResults_ModelResults$Cutoff_85[i] <- Q85_i
+ParametersResults_ModelResults$PosPred_85[i] <- PosPred_Q85_i
+ParametersResults_ModelResults$TimesGuessed_85[i] <- TimesGuessed_Q85_i
+ParametersResults_ModelResults$Cutoff_90[i] <- Q90_i
+ParametersResults_ModelResults$PosPred_90[i] <- PosPred_Q90_i
+ParametersResults_ModelResults$TimesGuessed_90[i] <- TimesGuessed_Q90_i
+
+}
+```
+
+
+
+
+```{r}
+save(ParametersResults_ModelResults, file = "ParametersResults_ModelResults-OneGoalGame-1.RData")
+```
+
+
+
+
+
+```{r}
+load("ParametersResults_ModelResults-OneGoalGame-1.RData")
+```
+
+
+
+```{r}
+set.seed(42)
+bst_testing <- xgboost(data = dtrain, # Set training data
+              
+      
+              eta = 0.05, # Set learning rate
+              max.depth = 25, # Set max depth
+              min_child_weight = 30, # Set minimum number of samples in node to split
+              gamma = 0.1, # Set minimum loss reduction for split
+              subsample = 1.0, # Set proportion of training data to use in tree
+              colsample_bytree =  1.0, # Set number of variables to use in each tree
+              
+              scale_pos_weight = 10,
+               
+              nrounds = 14, # Set number of rounds
+              #early_stopping_rounds = 50, # Set number of rounds to stop at if there is no improvement
+               
+              verbose = 0, # 1 - Prints out fit
+              nthread = 2, # Set number of parallel threads
+              #print_every_n = 20, # Prints out result every 20th iteration
+              
+              objective = "binary:logistic", # Set objective
+              eval_metric = "aucpr"
+              ) # Set evaluation metric to use
+
+
+set.seed(42)
+bst_testing <- xgboost(data = dtrain, # Set training data
+              
+      
+              eta = 0.3, # Set learning rate
+              max.depth = 10, # Set max depth
+              min_child_weight = 1, # Set minimum number of samples in node to split
+              gamma = 0.00, # Set minimum loss reduction for split
+              subsample = 1.0, # Set proportion of training data to use in tree
+              colsample_bytree =  0.5, # Set number of variables to use in each tree
+              
+              scale_pos_weight = 10,
+               
+              nrounds = 11, # Set number of rounds
+              #early_stopping_rounds = 50, # Set number of rounds to stop at if there is no improvement
+               
+              verbose = 0, # 1 - Prints out fit
+              nthread = 2, # Set number of parallel threads
+              #print_every_n = 20, # Prints out result every 20th iteration
+              
+              objective = "binary:logistic", # Set objective
+              eval_metric = "aucpr"
+              ) # Set evaluation metric to use
+
+
+
+set.seed(42)
+bst_testing <- xgboost(data = dtrain, # Set training data
+              
+      
+              eta = 0.3, # Set learning rate
+              max.depth = 25, # Set max depth
+              min_child_weight = 10, # Set minimum number of samples in node to split
+              gamma = 0.10, # Set minimum loss reduction for split
+              subsample = 0.7, # Set proportion of training data to use in tree
+              colsample_bytree =  0.5, # Set number of variables to use in each tree
+              
+              scale_pos_weight = 5,
+               
+              nrounds = 95, # Set number of rounds
+              #early_stopping_rounds = 50, # Set number of rounds to stop at if there is no improvement
+               
+              verbose = 0, # 1 - Prints out fit
+              nthread = 2, # Set number of parallel threads
+              #print_every_n = 20, # Prints out result every 20th iteration
+              
+              objective = "binary:logistic", # Set objective
+              eval_metric = "aucpr"
+              ) # Set evaluation metric to use
+
+
+
+
+set.seed(42)
+bst_testing <- xgboost(data = dtrain, # Set training data
+              
+      
+              eta = 0.1, # Set learning rate
+              max.depth = 7, # Set max depth
+              min_child_weight = 1, # Set minimum number of samples in node to split
+              gamma = 0.05, # Set minimum loss reduction for split
+              subsample = 0.5, # Set proportion of training data to use in tree
+              colsample_bytree =  0.5, # Set number of variables to use in each tree
+              
+              scale_pos_weight = 1,
+               
+              nrounds = 41, # Set number of rounds
+              #early_stopping_rounds = 50, # Set number of rounds to stop at if there is no improvement
+               
+              verbose = 0, # 1 - Prints out fit
+              nthread = 2, # Set number of parallel threads
+              #print_every_n = 20, # Prints out result every 20th iteration
+              
+              objective = "binary:logistic", # Set objective
+              eval_metric = "aucpr"
+              ) # Set evaluation metric to use
+
+
+```
+
+
+
+
+```{r}
+load("C:/Users/dmich/Documents/Hockey Prediction/OT Prediction/Scrape 2024-2025 Data/Clean2024_2025_Data_2.RData")
+load("C:/Users/dmich/Documents/Hockey Prediction/OT Prediction/Scrape 2024-2025 Data/Goals_Data.RData")
+
+GoalsAwayTeam <- Goals_Data[grepl("@", Goals_Data$game),]
+GoalsHomeTeam <- Goals_Data[!grepl("@", Goals_Data$game),]
+
+
+GoalsHomeTeam <- GoalsHomeTeam %>% mutate( Date =  ymd(substr(game, 1, 10))) #extract date
+GoalsHomeTeam <-  GoalsHomeTeam %>% mutate( AwayInitl = str_sub(game, start = -3)) #extract away team intl
+GoalsHomeTeam <- left_join(GoalsHomeTeam, TeamInitlKey, by = c("AwayInitl" = "Initl")) #get away team name
+
+GoalsHomeTeam <- GoalsHomeTeam %>% rename("AwayTeam" = "Name", "HomeTeam" = "team")
+
+GoalsHomeTeam <- GoalsHomeTeam %>% mutate(GameKey = paste(AwayTeam, " @ ", HomeTeam, " ", Date))
+
+
+
+GoalsAwayTeam <- GoalsAwayTeam %>% mutate( Date =  ymd(substr(game, 1, 10))) #extract date
+GoalsAwayTeam <-  GoalsAwayTeam %>% mutate( HomeInitl = str_sub(game, start = -3)) #extract home team intl
+GoalsAwayTeam <- left_join(GoalsAwayTeam, TeamInitlKey, by = c("HomeInitl" = "Initl")) #get home team name
+
+GoalsAwayTeam <- GoalsAwayTeam %>% rename("HomeTeam" = "Name", "AwayTeam" = "team")
+
+GoalsAwayTeam <- GoalsAwayTeam %>% mutate(GameKey = paste(AwayTeam, " @ ", HomeTeam, " ", Date))
+
+colnames(GoalsHomeTeam) <- c(paste("Home ", colnames(GoalsHomeTeam)))
+names(GoalsHomeTeam)[names(GoalsHomeTeam) == 'Home  GameKey'] <- 'GameKey'
+
+colnames(GoalsAwayTeam) <- c(paste("Away ", colnames(GoalsAwayTeam)))
+names(GoalsAwayTeam)[names(GoalsAwayTeam) == 'Away  GameKey'] <- 'GameKey'
+
+
+
+Goals_Joined <- merge(GoalsHomeTeam, GoalsAwayTeam, by.x = "GameKey", by.y = "GameKey") 
+
+One_Goal_Game_df <- Goals_Joined %>% select(GameKey, `Home  gf`, `Away  gf`) %>% mutate(Home_gf = as.numeric(`Home  gf`), Away_gf = as.numeric(`Away  gf`)) %>% 
+  mutate(GoalDifference = abs(Home_gf - Away_gf)) %>% 
+  mutate(One_Goal_Game = if_else(GoalDifference %in% c(1, 0), 1, 0)) %>% 
+  select(GameKey, One_Goal_Game)
+
+One_Goal_Game_df <- One_Goal_Game_df %>% mutate(GameKey = str_squish(GameKey))  %>% mutate(GameKey = stri_trans_general(str = GameKey, id = "Latin-ASCII"))
+
+
+
+TotalDataWith_OneGoal_Game <- left_join(Clean2024_2025_Data_2,  One_Goal_Game_df, join_by(GameKey == GameKey))
+
+
+Predict_Data <- TotalDataWith_OneGoal_Game %>% select(-GameKey, -Season, -AwayTeam, -HomeTeam, -AwayGameNumber, -HomeGameNumber, -Date) 
+
+dpredict <- xgb.DMatrix(data = as.matrix(Predict_Data %>% select(-OT, -One_Goal_Game)), label = Predict_Data$One_Goal_Game)
+```
+
+```{r}
+boost_preds <- predict(bst_testing, dpredict) # Create predictions for xgboost model
+# Join predictions and actual
+pred_dat <- cbind.data.frame(boost_preds , Predict_Data$One_Goal_Game)
+names(pred_dat) <- c("predictions", "response")
+
+#oc<- optimal.cutpoints(X = "predictions",
+#                       status = "response",
+#                       tag.healthy = 0,
+#                       data = pred_dat,
+#                       methods = "MaxEfficiency")
+
+#boost_preds_MaxAUC <- predict(bst_final_MaxAUC, dtest) # Create predictions for xgboost model
+
+#pred_dat <- cbind.data.frame(boost_preds_MaxAUC , test_db$OT)#
+# Convert predictions to classes, using optimal cut-off
+boost_pred_class <- rep(0, length(boost_preds))
+#boost_pred_class[boost_preds >= 0.7073527] <- 1
+boost_pred_class[boost_preds >= 0.9110626] <- 1
+#boost_pred_class[boost_preds >= 0.9705593] <- 1
+#boost_pred_class[boost_preds >= 0.5283210] <- 1
+
+
+
+#0.5400651
+#boost_pred_class[boost_preds >= .425] <- 1
+
+
+t <- table(boost_pred_class, actual = Predict_Data$One_Goal_Game) # Create table
+confusionMatrix(t, positive = "1") # Produce confusion matrix
+```
+
+```{r}
+cbind(Predict_Data,boost_pred_class) %>% filter(boost_pred_class == 1) %>% mutate(Not_OT_1_Goal = ifelse(One_Goal_Game == 1 & OT != 1, 1 ,0)) %>% 
+  summarise(Chosen_Games = n(), OT = sum(OT), Not_OT_1_Goal = sum(Not_OT_1_Goal))
+```
+

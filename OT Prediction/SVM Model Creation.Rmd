@@ -1,0 +1,106 @@
+
+
+```{r}
+library(dplyr)
+library(e1071)
+library(caret)
+```
+
+
+```{r}
+load("PredictionData-NewFields.RData")
+```
+
+```{r}
+#Create weighted 80/20 split
+set.seed(42)
+train.index <- createDataPartition(PredictionData2$OT, p = .8, list = FALSE)
+train_db <- PredictionData2[ train.index,]
+test_db  <- PredictionData2[-train.index,]
+
+summary(as.factor(train_db$OT))
+summary(as.factor(test_db$OT))
+```
+
+
+```{r}
+train_db <- train_db %>% select(-GameKey, -Season, -AwayTeam, -HomeTeam, -AwayGameNumber, -HomeGameNumber, -Date) 
+
+test_db <- test_db %>% select(-GameKey, -Season, -AwayTeam, -HomeTeam, -AwayGameNumber, -HomeGameNumber, -Date) 
+```
+
+
+
+
+
+
+```{r}
+classifier = svm(formula = OT ~ ., 
+                 data = train_db, 
+                 type = 'C-classification', 
+                 kernel = 'radial') 
+```
+
+
+```{r}
+y_pred <- predict(classifier, test_db)
+
+pred_dat <- cbind.data.frame(y_pred , test_db$OT)
+
+t <- table(y_pred, test_db$OT) # Create table
+confusionMatrix(t, positive = "1")
+```
+
+```{r}
+gamma <- c(0.005, 0.01)
+cost <- c(1, 4)
+
+tune.out = tune(svm, OT~., data = train_db, kernel = "radial",
+                  cross = 5,
+                  ranges = list(cost = cost, gamma = gamma))
+  
+```
+
+
+
+
+
+
+```{r}
+#https://stats.stackexchange.com/questions/421701/tuning-svm-parameters-in-r
+
+
+train_db$OT <- factor(train_db$OT)
+
+train_db <- train_db %>% mutate(OT = ifelse(OT == 1, "Yes", "No"))
+
+train_db$OT <- factor(train_db$OT)
+
+custom_control <- trainControl(
+  method = "cv",       # Cross-validation
+  number = 5,          # Number of folds
+  verboseIter = TRUE,  # Output the progress
+  savePredictions = "final",
+  classProbs = TRUE,   # Estimate class probabilities
+  summaryFunction = twoClassSummary # Use for multi-class classification
+)
+
+#Train and Tune the SVM
+svm.tune <- train(OT ~.,
+                  data = train_db,
+                  method = "svmRadial",   # Radial kernel
+                  tuneLength = 3,         # 5 values of the cost function
+                  preProc = c("center","scale"),  # Center and scale data
+                  metric="ROC",
+                  trControl=custom_control)
+```
+
+
+```{r}
+svm.tune
+```
+
+
+
+
+

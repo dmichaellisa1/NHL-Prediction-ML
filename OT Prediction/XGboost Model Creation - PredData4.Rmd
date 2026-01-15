@@ -1,0 +1,202 @@
+
+
+```{r}
+
+library(dplyr)
+library(xgboost)
+library(OptimalCutpoints)
+library(caret)
+library(SHAPforxgboost)
+#source("a_insights_shap_functions.r")
+library(ggplot2)
+library(parallel)
+#library(xgboostExplainer)
+
+library(foreach)
+library(doParallel)
+
+```
+
+
+```{r}
+load("PredictionData-4.RData")
+```
+
+```{r}
+#Create weighted 80/20 split
+set.seed(42)
+train.index <- createDataPartition(PredictionData4$OT, p = .8, list = FALSE)
+train_db <- PredictionData4[ train.index,]
+test_db  <- PredictionData4[-train.index,]
+
+summary(as.factor(train_db$OT))
+summary(as.factor(test_db$OT))
+```
+
+
+
+
+
+
+
+
+```{r}
+train_db <- train_db %>% select(-GameKey, -Season, -AwayTeam, -HomeTeam, -AwayGameNumber, -HomeGameNumber, -Date) 
+
+test_db <- test_db %>% select(-GameKey, -Season, -AwayTeam, -HomeTeam, -AwayGameNumber, -HomeGameNumber, -Date) 
+```
+
+#### Preparing for XGBoost
+```{r}
+dtrain <- xgb.DMatrix(data = as.matrix(train_db %>% select(-OT)), label = train_db$OT)
+dtest <- xgb.DMatrix(data = as.matrix(test_db %>% select(-OT)), label = test_db$OT)
+```
+
+
+
+
+Best Option from prior data version
+```{r}
+set.seed(42)
+bst_final_3 <- xgboost(data = dtrain, # Set training data
+              
+      
+              eta = 0.05, # Set learning rate
+              max.depth = 7, # Set max depth
+              min_child_weight = 1, # Set minimum number of samples in node to split
+              gamma = 0.10, # Set minimum loss reduction for split
+              subsample = 0.5, # Set proportion of training data to use in tree
+              colsample_bytree =  1.0, # Set number of variables to use in each tree
+              
+              scale_pos_weight = 5,
+               
+              nrounds = 28, # Set number of rounds
+              #early_stopping_rounds = 50, # Set number of rounds to stop at if there is no improvement
+               
+              verbose = 1, # 1 - Prints out fit
+              nthread = 2, # Set number of parallel threads
+              print_every_n = 20, # Prints out result every 20th iteration
+              
+              objective = "binary:logistic", # Set objective
+              eval_metric = "aucpr"
+              ) # Set evaluation metric to use
+```
+
+```{r}
+boost_preds <- predict(bst_final_3, dtrain) # Create predictions for xgboost model
+# Join predictions and actual
+pred_dat <- cbind.data.frame(boost_preds , train_db$OT)
+names(pred_dat) <- c("predictions", "response")
+oc<- optimal.cutpoints(X = "predictions",
+                       status = "response",
+                       tag.healthy = 0,
+                       data = pred_dat,
+                       methods = "MaxProdNPVPPV")
+
+boost_preds_3 <- predict(bst_final_3, dtest) # Create predictions for xgboost model
+
+pred_dat <- cbind.data.frame(boost_preds_3 , test_db$OT)#
+# Convert predictions to classes, using optimal cut-off
+boost_pred_class_3<- rep(0, length(boost_preds_3))
+#boost_pred_class_3[boost_preds_3 >= oc$MaxProdNPVPPV$Global$optimal.cutoff$cutoff[1]] <- 1
+
+boost_pred_class_3[boost_preds_3 >= .5888] <- 1
+
+t_3 <- table(boost_pred_class_3, actual = test_db$OT) # Create table
+confusionMatrix(t_3, positive = "1") # Produce confusion matrix
+```
+
+
+```{r}
+set.seed(42)
+bst_final_test <- xgboost(data = dtrain, # Set training data
+              
+      
+              eta = 0.05, # Set learning rate
+              max.depth = 25, # Set max depth
+              min_child_weight = 1, # Set minimum number of samples in node to split
+              gamma = 0.05, # Set minimum loss reduction for split
+              subsample = 1.0, # Set proportion of training data to use in tree
+              colsample_bytree =  1.0, # Set number of variables to use in each tree
+              
+              scale_pos_weight = 5,
+               
+              nrounds = 14, # Set number of rounds
+              #early_stopping_rounds = 50, # Set number of rounds to stop at if there is no improvement
+               
+              verbose = 1, # 1 - Prints out fit
+              nthread = 2, # Set number of parallel threads
+              print_every_n = 20, # Prints out result every 20th iteration
+              
+              objective = "binary:logistic", # Set objective
+              eval_metric = "aucpr"
+              ) # Set evaluation metric to use
+```
+
+
+```{r}
+boost_preds <- predict(bst_final_test, dtrain) # Create predictions for xgboost model
+# Join predictions and actual
+pred_dat <- cbind.data.frame(boost_preds , train_db$OT)
+names(pred_dat) <- c("predictions", "response")
+oc<- optimal.cutpoints(X = "predictions",
+                       status = "response",
+                       tag.healthy = 0,
+                       data = pred_dat,
+                       methods = "MaxProdNPVPPV")
+
+boost_preds_3 <- predict(bst_final_test, dtest) # Create predictions for xgboost model
+
+pred_dat <- cbind.data.frame(boost_preds_3 , test_db$OT)#
+# Convert predictions to classes, using optimal cut-off
+boost_pred_class_3<- rep(0, length(boost_preds_3))
+#boost_pred_class_3[boost_preds_3 >= oc$MaxProdNPVPPV$Global$optimal.cutoff$cutoff[1]] <- 1
+
+boost_pred_class_3[boost_preds_3 >= .6] <- 1
+
+t_3 <- table(boost_pred_class_3, actual = test_db$OT) # Create table
+confusionMatrix(t_3, positive = "1") # Produce confusion matrix
+```
+Test with 2024-2025 Data
+```{r}
+load("C:/Users/dmich/Documents/Hockey Prediction/OT Prediction/Scrape 2024-2025 Data/Clean2024_2025_Data_3.RData")
+```
+
+
+```{r}
+
+Predict_Data <- Clean2024_2025_Data_3 %>% select(-GameKey, -Season, -AwayTeam, -HomeTeam, -AwayGameNumber, -HomeGameNumber, -Date) 
+
+dpredict <- xgb.DMatrix(data = as.matrix(Predict_Data %>% select(-OT)), label = Predict_Data$OT)
+
+cutoffvalue <- .5888
+
+```
+
+```{r}
+
+
+boost_preds <- predict(bst_final_test, dpredict) # Create predictions for xgboost model
+# Join predictions and actual
+pred_dat <- cbind.data.frame(boost_preds , Predict_Data$OT)
+names(pred_dat) <- c("predictions", "response")
+
+#oc<- optimal.cutpoints(X = "predictions",
+#                       status = "response",
+#                       tag.healthy = 0,
+#                       data = pred_dat,
+#                       methods = "MaxEfficiency")
+
+#boost_preds_MaxAUC <- predict(bst_final_MaxAUC, dtest) # Create predictions for xgboost model
+
+#pred_dat <- cbind.data.frame(boost_preds_MaxAUC , test_db$OT)#
+# Convert predictions to classes, using optimal cut-off
+boost_pred_class <- rep(0, length(boost_preds))
+boost_pred_class[boost_preds >= cutoffvalue] <- 1
+#0.5400651
+#boost_pred_class[boost_preds >= .425] <- 1
+
+
+t <- table(boost_pred_class, actual = Predict_Data$OT) # Create table
+confusionMatrix(t, positive = "1") # Produce confusion matrix
+```

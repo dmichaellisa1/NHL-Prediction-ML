@@ -1,0 +1,1450 @@
+
+
+```{r}
+library(dplyr)
+library(lubridate)
+library(stringr)
+library(janitor)
+library(caret)
+```
+
+```{r}
+load("FO_Data.RData")
+load("Goals_Data.RData")
+load("Shots_Data.RData")
+load("Misc_Data.RData")
+load("PP_Data.RData")
+```
+
+```{r}
+TeamInitlKey <- data.frame(Initl = c("BOS", "COL", "NSH", "LAK", "BUF", "WSH", "CHI", "SJS", "NYR", "PIT", "CAR", "WPG", "CBJ", "FLA", "ARI", "PHI", "ANA", "CGY", "NJD", "MIN", "DAL", "TOR", "MTL", "OTT", "DET", "TBL", "EDM", "VAN", "NYI", "SEA", "STL", "VGK")
+                             , Name = c("Boston Bruins" , "Colorado Avalanche","Nashville Predators","Los Angeles Kings","Buffalo Sabres","Washington Capitals","Chicago Blackhawks","San Jose Sharks","New York Rangers" ,"Pittsburgh Penguins","Carolina Hurricanes","Winnipeg Jets","Columbus Blue Jackets", "Florida Panthers","Arizona Coyotes","Philadelphia Flyers","Anaheim Ducks","Calgary Flames","New Jersey Devils","Minnesota Wild", "Dallas Stars","Toronto Maple Leafs","Montréal Canadiens","Ottawa Senators","Detroit Red Wings","Tampa Bay Lightning","Edmonton Oilers","Vancouver Canucks","New York Islanders","Seattle Kraken","St. Louis Blues","Vegas Golden Knights"))
+```
+
+
+```{r}
+FOAwayTeam <- FO_Data[grepl("@", FO_Data$game),]
+FOHomeTeam <- FO_Data[!grepl("@", FO_Data$game),]
+
+FOHomeTeam <- FOHomeTeam %>% mutate( Date =  ymd(substr(game, 1, 10))) #extract date
+FOHomeTeam <-  FOHomeTeam %>% mutate( AwayInitl = str_sub(game, start = -3)) #extract away team intl
+FOHomeTeam <- left_join(FOHomeTeam, TeamInitlKey, by = c("AwayInitl" = "Initl")) #get away team name
+
+FOHomeTeam <- FOHomeTeam %>% rename("AwayTeam" = "Name", "HomeTeam" = "team")
+
+FOHomeTeam <- FOHomeTeam %>% mutate(GameKey = paste(AwayTeam, " @ ", HomeTeam, " ", Date))
+
+
+FO_Data <- FOHomeTeam #just need home stats, away is relative to home and is calculated later
+
+```
+
+```{r}
+#SAT_Data <- Shots_Data
+SATAwayTeam <- Shots_Data[grepl("@", Shots_Data$game),]
+SATHomeTeam <- Shots_Data[!grepl("@", Shots_Data$game),]
+
+SATHomeTeam <- SATHomeTeam %>% mutate( Date =  ymd(substr(game, 1, 10))) #extract date
+SATHomeTeam <-  SATHomeTeam %>% mutate( AwayInitl = str_sub(game, start = -3)) #extract away team intl
+SATHomeTeam <- left_join(SATHomeTeam, TeamInitlKey, by = c("AwayInitl" = "Initl")) #get away team name
+
+SATHomeTeam <- SATHomeTeam %>% rename("AwayTeam" = "Name", "HomeTeam" = "team")
+
+SATHomeTeam <- SATHomeTeam %>% mutate(GameKey = paste(AwayTeam, " @ ", HomeTeam, " ", Date))
+
+
+SATAwayTeam <- SATAwayTeam %>% mutate( Date =  ymd(substr(game, 1, 10))) #extract date
+SATAwayTeam <-  SATAwayTeam %>% mutate( HomeInitl = str_sub(game, start = -3)) #extract home team intl
+SATAwayTeam <- left_join(SATAwayTeam, TeamInitlKey, by = c("HomeInitl" = "Initl")) #get home team name
+
+SATAwayTeam <- SATAwayTeam %>% rename("HomeTeam" = "Name", "AwayTeam" = "team")
+
+SATAwayTeam <- SATAwayTeam %>% mutate(GameKey = paste(AwayTeam, " @ ", HomeTeam, " ", Date))
+
+#just need the shots from away. the origional has against stats for everything else
+SATAwayTeam <- SATAwayTeam %>% select(GameKey, shots) %>% rename(away_shots = shots)
+
+SAT_Data <- merge(SATHomeTeam, SATAwayTeam)
+```
+
+
+
+```{r}
+GoalsAwayTeam <- Goals_Data[grepl("@", Goals_Data$game),]
+GoalsHomeTeam <- Goals_Data[!grepl("@", Goals_Data$game),]
+
+
+GoalsHomeTeam <- GoalsHomeTeam %>% mutate( Date =  ymd(substr(game, 1, 10))) #extract date
+GoalsHomeTeam <-  GoalsHomeTeam %>% mutate( AwayInitl = str_sub(game, start = -3)) #extract away team intl
+GoalsHomeTeam <- left_join(GoalsHomeTeam, TeamInitlKey, by = c("AwayInitl" = "Initl")) #get away team name
+
+GoalsHomeTeam <- GoalsHomeTeam %>% rename("AwayTeam" = "Name", "HomeTeam" = "team")
+
+GoalsHomeTeam <- GoalsHomeTeam %>% mutate(GameKey = paste(AwayTeam, " @ ", HomeTeam, " ", Date))
+
+
+
+GoalsAwayTeam <- GoalsAwayTeam %>% mutate( Date =  ymd(substr(game, 1, 10))) #extract date
+GoalsAwayTeam <-  GoalsAwayTeam %>% mutate( HomeInitl = str_sub(game, start = -3)) #extract home team intl
+GoalsAwayTeam <- left_join(GoalsAwayTeam, TeamInitlKey, by = c("HomeInitl" = "Initl")) #get home team name
+
+GoalsAwayTeam <- GoalsAwayTeam %>% rename("HomeTeam" = "Name", "AwayTeam" = "team")
+
+GoalsAwayTeam <- GoalsAwayTeam %>% mutate(GameKey = paste(AwayTeam, " @ ", HomeTeam, " ", Date))
+
+colnames(GoalsHomeTeam) <- c(paste("Home ", colnames(GoalsHomeTeam)))
+names(GoalsHomeTeam)[names(GoalsHomeTeam) == 'Home  GameKey'] <- 'GameKey'
+
+colnames(GoalsAwayTeam) <- c(paste("Away ", colnames(GoalsAwayTeam)))
+names(GoalsAwayTeam)[names(GoalsAwayTeam) == 'Away  GameKey'] <- 'GameKey'
+
+
+MiscAwayTeam <- Misc_Data[grepl("@", Misc_Data$game),]
+MiscHomeTeam <- Misc_Data[!grepl("@", Misc_Data$game),]
+
+
+MiscHomeTeam <- MiscHomeTeam %>% mutate( Date =  ymd(substr(game, 1, 10))) #extract date
+MiscHomeTeam <-  MiscHomeTeam %>% mutate( AwayInitl = str_sub(game, start = -3)) #extract away team intl
+MiscHomeTeam <- left_join(MiscHomeTeam, TeamInitlKey, by = c("AwayInitl" = "Initl")) #get away team name
+
+MiscHomeTeam <- MiscHomeTeam %>% rename("AwayTeam" = "Name", "HomeTeam" = "team")
+
+MiscHomeTeam <- MiscHomeTeam %>% mutate(GameKey = paste(AwayTeam, " @ ", HomeTeam, " ", Date))
+
+
+colnames(MiscHomeTeam) <- c(paste("Home ", colnames(MiscHomeTeam)))
+names(MiscHomeTeam)[names(MiscHomeTeam) == 'Home  GameKey'] <- 'GameKey'
+
+
+
+MiscAwayTeam <- MiscAwayTeam %>% mutate( Date =  ymd(substr(game, 1, 10))) #extract date
+MiscAwayTeam <-  MiscAwayTeam %>% mutate( HomeInitl = str_sub(game, start = -3)) #extract home team intl
+MiscAwayTeam <- left_join(MiscAwayTeam, TeamInitlKey, by = c("HomeInitl" = "Initl")) #get home team name
+
+MiscAwayTeam <- MiscAwayTeam %>% rename("HomeTeam" = "Name", "AwayTeam" = "team")
+
+MiscAwayTeam <- MiscAwayTeam %>% mutate(GameKey = paste(AwayTeam, " @ ", HomeTeam, " ", Date))
+
+colnames(MiscAwayTeam) <- c(paste("Away ", colnames(MiscAwayTeam)))
+names(MiscAwayTeam)[names(MiscAwayTeam) == 'Away  GameKey'] <- 'GameKey'
+
+
+PPAwayTeam <- PP_Data[grepl("@", PP_Data$game),]
+PPHomeTeam <- PP_Data[!grepl("@", PP_Data$game),]
+
+
+PPHomeTeam <- PPHomeTeam %>% mutate( Date =  ymd(substr(game, 1, 10))) #extract date
+PPHomeTeam <-  PPHomeTeam %>% mutate( AwayInitl = str_sub(game, start = -3)) #extract away team intl
+PPHomeTeam <- left_join(PPHomeTeam, TeamInitlKey, by = c("AwayInitl" = "Initl")) #get away team name
+
+PPHomeTeam <- PPHomeTeam %>% rename("AwayTeam" = "Name", "HomeTeam" = "team")
+
+PPHomeTeam <- PPHomeTeam %>% mutate(GameKey = paste(AwayTeam, " @ ", HomeTeam, " ", Date))
+
+
+colnames(PPHomeTeam) <- c(paste("Home ", colnames(PPHomeTeam)))
+names(PPHomeTeam)[names(PPHomeTeam) == 'Home  GameKey'] <- 'GameKey'
+
+
+
+PPAwayTeam <- PPAwayTeam %>% mutate( Date =  ymd(substr(game, 1, 10))) #extract date
+PPAwayTeam <-  PPAwayTeam %>% mutate( HomeInitl = str_sub(game, start = -3)) #extract home team intl
+PPAwayTeam <- left_join(PPAwayTeam, TeamInitlKey, by = c("HomeInitl" = "Initl")) #get home team name
+
+PPAwayTeam <- PPAwayTeam %>% rename("HomeTeam" = "Name", "AwayTeam" = "team")
+
+PPAwayTeam <- PPAwayTeam %>% mutate(GameKey = paste(AwayTeam, " @ ", HomeTeam, " ", Date))
+
+colnames(PPAwayTeam) <- c(paste("Away ", colnames(PPAwayTeam)))
+names(PPAwayTeam)[names(PPAwayTeam) == 'Away  GameKey'] <- 'GameKey'
+
+
+GameDataJoined <- merge(FO_Data, SAT_Data, by.x = "GameKey", by.y = "GameKey")
+GameDataJoined <- merge(GameDataJoined, GoalsAwayTeam, by.x = "GameKey", by.y = "GameKey")
+GameDataJoined <- merge(GameDataJoined, GoalsHomeTeam, by.x = "GameKey", by.y = "GameKey")
+GameDataJoined <- merge(GameDataJoined, MiscAwayTeam, by.x = "GameKey", by.y = "GameKey")
+GameDataJoined <- merge(GameDataJoined, MiscHomeTeam, by.x = "GameKey", by.y = "GameKey")
+GameDataJoined <- merge(GameDataJoined, PPAwayTeam, by.x = "GameKey", by.y = "GameKey")
+GameDataJoined <- merge(GameDataJoined, PPHomeTeam, by.x = "GameKey", by.y = "GameKey")
+```
+
+```{r}
+#remove duplicate columns and unneeded and rename
+GameDataJoined_Cleaned <- GameDataJoined %>% select(-index.x, -index.y, -gp.x, -gp.y, -game.x, -HomeTeam.y, -game.y, -Date.y, -AwayInitl.y, -AwayTeam.y, -`Away  index.x`, -`Away  AwayTeam.x`, -`Away  game.x`, -`Away  gp.x`, -`Away  Date.x`, -`Away  HomeInitl.x`, -`Away  HomeTeam.x`, -`Home  index.x`, -`Home  HomeTeam.x`, -`Home  game.x`, -`Home  gp.x`, -`Home  Date.x`, -`Home  AwayInitl.x`, -`Home  AwayTeam.x`, -`Away  index.y`, -`Away  AwayTeam.y`, -`Away  game.y`, -`Away  gp.y`, -`Away  Date.y`, -`Away  HomeInitl.y`, -`Away  HomeTeam.y`, -`Home  index.y`, -`Home  HomeTeam.y`, -`Home  game.y`, -`Home  gp.y`, -`Home  Date.y`, -`Home  AwayInitl.y`, -`Home  AwayTeam.y`, -`Away  AwayTeam`, -`Away  game`, -`Away  gp`, -`Away  Date`, -`Away  HomeInitl`, -`Away  HomeTeam`, -`Home  index`, -`Home  HomeTeam`, -`Home  game`, -`Home  gp`, -`Home  Date`, -`Home  AwayInitl`, -`Home  AwayTeam`, -`Away  index`) %>% rename(HomeTeam = HomeTeam.x, Date = Date.x, AwayInitl = AwayInitl.x, AwayTeam = AwayTeam.x)
+```
+
+
+
+```{r}
+#make season designation
+GameDataJoined_Cleaned <- GameDataJoined_Cleaned %>% mutate(Season = case_when( month(Date) >= 6 ~ paste(year(Date), "-", year(Date) + 1)
+                                                                                ,month(Date) < 6 ~ paste(year(Date) - 1, "-", year(Date))
+))
+
+GameDataJoined_Cleaned <- GameDataJoined_Cleaned %>% arrange(Date)
+
+#convert number format
+GameDataJoined_Cleaned <- GameDataJoined_Cleaned %>%
+    mutate_at(vars(c(3:24, 28:81, 83:93, 95:115, 117:132, 134:139)),list(~as.numeric(str_replace_all(.,'--','0'))))
+
+```
+
+
+
+```{r}
+#Get per game points per game
+
+
+TeamGamePPG <- data.frame()
+
+
+#team <- "Boston Bruins"
+#season <- "2017 - 2018"
+
+
+for (team in TeamInitlKey$Name) {
+  
+  for (season in unique(GameDataJoined_Cleaned$Season)) {
+    
+    
+   teamseason <- GameDataJoined_Cleaned %>% filter(Season == season) %>% filter(HomeTeam == team | AwayTeam == team)
+   
+   teamseason <- teamseason %>% mutate(GameNumber = row_number(), FocusTeam = team) %>% relocate(FocusTeam, GameNumber)
+
+   teamseason <- teamseason %>% mutate(Points = case_when(FocusTeam == HomeTeam ~ `Home  p`
+                                            ,FocusTeam == AwayTeam ~ `Away  p`)) %>% select(Season, FocusTeam, GameNumber, GameKey, Points)
+   
+   
+   teamseason <- teamseason %>% mutate(TotalPoints = cumsum(Points), PPG = TotalPoints/GameNumber)
+   
+   teamseason <- teamseason %>% mutate(PPG_prior = lag(PPG)) %>% replace(is.na(.), 0)
+   
+   TeamGamePPG <- rbind(TeamGamePPG, teamseason)
+   
+  }
+}
+
+```
+
+```{r}
+#Create OT field - what we are tryingto predict
+GameDataJoined_Cleaned <- GameDataJoined_Cleaned %>% mutate(OT = case_when(`Home  ot`+`Away  ot` == 0 ~ 0
+                                                 ,`Home  ot`+`Away  ot` != 0 ~ 1))
+
+#Attach PPG and Organize
+#Remember: PPG is what it was after the game. Need to get what it was after the game before
+
+GameData_PPG <- merge(GameDataJoined_Cleaned, TeamGamePPG, by.x = c("HomeTeam", "GameKey"), by.y = c("FocusTeam", "GameKey")) %>% rename(HomeGameNumber = GameNumber, HomePoints_post = Points, HomeTotalPoints_post = TotalPoints, HomePPG_post = PPG, HomePPG_prior = PPG_prior) %>% rename(Season = Season.x) %>% select(-Season.y)
+
+
+GameData_PPG <- merge(GameData_PPG, TeamGamePPG, by.x = c("AwayTeam", "GameKey"), by.y = c("FocusTeam", "GameKey")) %>% rename(AwayGameNumber = GameNumber, AwayPoints_post = Points, AwayTotalPoints_post = TotalPoints, AwayPPG_post = PPG, AwayPPG_prior = PPG_prior) %>% rename(Season = Season.x) %>% select(-Season.y)
+
+
+GameData_PPG <- GameData_PPG %>% mutate(PPG_Diff_ABS = abs(HomePPG_prior - AwayPPG_prior)
+                                        ,PPG_Diff = HomePPG_prior - AwayPPG_prior)
+
+```
+
+
+
+```{r}
+#test basic distributions
+sum(GameData_PPG$OT)/nrow(GameData_PPG)
+
+TestSample <- GameData_PPG %>% filter(HomeGameNumber > 20 & AwayGameNumber > 20)
+sum(TestSample$OT)/nrow(TestSample)
+
+
+TestSample %>% group_by(OT) %>% summarize(mean(PPG_Diff_ABS)
+                                          ,q1 = quantile(PPG_Diff_ABS, 0.25),
+                                          ,q3 = quantile(PPG_Diff_ABS, 0.75))
+```
+
+```{r}
+ggplot(TestSample, aes(x=factor(OT), y=PPG_Diff_ABS)) + 
+    geom_boxplot()
+```
+```{r}
+
+
+ggplot(TestSample, aes(x = PPG_Diff_ABS, fill = factor(OT))) + 
+  geom_histogram(color = 1, alpha = 0.75,
+                 position = "identity") +
+  scale_fill_manual(values = c("#8795E8", "#FF6AD5"))
+```
+
+```{r}
+
+
+ggplot(TestSample, aes(x = log(PPG_Diff_ABS), fill = factor(OT))) + 
+  geom_histogram(color = 1, alpha = 0.75,
+                 position = "identity") +
+  scale_fill_manual(values = c("#8795E8", "#FF6AD5"))
+```
+There is a very slight decrease in PPG difference for ties. I.E. Teams that have similar records are very slightly more likely to go to OT
+
+```{r}
+#Test Goal diff distribution for weighting.
+#Theory: A blowout game will skew team goal averages a lot. Figure out an upper limit to keep it better
+
+#remove ot goals. We are just looking at goals in regulation
+test <- GameData_PPG %>% mutate(Goal_Diff = abs((`Home  gf` - `Away  gf`) - (`Home  gf_in_ot` + `Away  gf_in_ot`)))
+
+
+ggplot(test, aes(x = Goal_Diff)) +
+  geom_histogram()
+```
+```{r}
+test <- test %>% mutate(Home_Reg_Goals = `Home  gf` - `Home  gf_in_ot`, Away_Reg_Goals = `Away  gf` - `Away  gf_in_ot`)
+
+HomeGoals <-data.frame( test$Home_Reg_Goals) %>% rename(Goals = test.Home_Reg_Goals)
+AwayGoals <- data.frame( test$Away_Reg_Goals) %>% rename(Goals = test.Away_Reg_Goals)
+
+AllGoals <- rbind(HomeGoals,AwayGoals)
+summary(AllGoals$Goals)
+```
+
+```{r}
+ggplot(AllGoals, aes(x = Goals)) +
+  geom_histogram()
+```
+Scoring 5 or more goals is an abnormality.
+Outscoring by 4 or more is an abnormality.
+
+Strategy: Cap goals at 5? maybe 6
+Get an average goals against (with individual GA capped at 5). 
+Calculate how many goals team scored over the average (Goals - Average GA)
+Calculate average of that for a team and apply to next game (metric to see how they outscore given defense)
+
+Average Goals above Average
+
+Find difference between this and opponent's GAA: Expected Goals
+Find difference in Teams expected Goals
+
+Don't calculate this until a sample of ~5 games are played
+
+
+
+
+```{r}
+#Get GA per game and GAA
+
+
+TeamGameGAA <- data.frame()
+
+
+#team <- "Boston Bruins"
+#season <- "2017 - 2018"
+
+
+for (team in TeamInitlKey$Name) {
+  
+  for (season in unique(GameDataJoined_Cleaned$Season)) {
+    
+    
+   teamseason <- GameDataJoined_Cleaned %>% filter(Season == season) %>% filter(HomeTeam == team | AwayTeam == team)
+   
+   teamseason <- teamseason %>% mutate(GameNumber = row_number(), FocusTeam = team) %>% 
+     mutate(OtherTeam = if_else(FocusTeam == HomeTeam, AwayTeam, HomeTeam)) %>% 
+     relocate(FocusTeam, GameNumber, OtherTeam)
+
+   teamseason <- teamseason %>% mutate(GA = case_when(FocusTeam == HomeTeam ~ `Home  ga`
+                                            ,FocusTeam == AwayTeam ~ `Away  ga`)) %>% 
+     mutate(GF = case_when(FocusTeam == HomeTeam ~ `Home  gf`
+                                            ,FocusTeam == AwayTeam ~ `Away  gf`)) %>% 
+     select(Season, FocusTeam, GameNumber, OtherTeam, GameKey, GF, GA)
+   
+   
+   teamseason <- teamseason %>% mutate(GA_limited = if_else(GA > 5, 5, GA)) %>% 
+     mutate(GAA = cumsum(GA_limited) / GameNumber) #this is after the given game
+   
+   
+   teamseason <- teamseason %>% mutate(GAA_prior = lag(GAA)) %>% replace(is.na(.), 0)
+   
+   TeamGameGAA <- rbind(TeamGameGAA, teamseason)
+   
+  }
+}
+
+
+#join other team's stats to compare GF to other team's GAA
+
+TeamGameGAA_compare <- data.frame()
+
+
+#team <- "Boston Bruins"
+#season <- "2017 - 2018"
+
+
+for (team in TeamInitlKey$Name) {
+  
+  for (season in unique(GameDataJoined_Cleaned$Season)) {
+    
+    
+   teamseason <- TeamGameGAA %>% filter(Season == season) %>% filter(FocusTeam == team)
+   
+   teamseason <- merge(teamseason, TeamGameGAA, by.x = c("OtherTeam", "GameKey"), by.y = c("FocusTeam", "GameKey")) %>% rename(Season = Season.x, GameNumber = GameNumber.x, GF = GF.x, GA = GA.x, GA_limited = GA_limited.x, GAA = GAA.x, GAA_prior = GAA_prior.x, GameNumber_other = GameNumber.y, GF_other = GF.y, GA_other = GA.y, GA_limited_other = GA_limited.y, GAA_other = GAA.y, GAA_prior_other = GAA_prior.y) %>%
+     select(-Season.y, -OtherTeam.y) %>% 
+     relocate(FocusTeam, GameNumber, OtherTeam) %>% 
+     arrange(GameNumber)
+   
+
+   teamseason <- teamseason %>% mutate(Goals_Above_GAA = GF - GAA_prior_other) 
+   
+   
+   teamseason <- teamseason %>% mutate(Average_Goals_Above_GAA = cumsum(Goals_Above_GAA) / GameNumber) #this is after the given game
+   
+   
+   teamseason <- teamseason %>% mutate(Average_Goals_Above_GAA_prior = lag(Average_Goals_Above_GAA)) %>% replace(is.na(.), 0)
+   
+   TeamGameGAA_compare <- rbind(TeamGameGAA_compare, teamseason)
+   
+  }
+}
+
+
+
+#Attach
+GameData_PPG_GAA <- merge(GameData_PPG, TeamGameGAA_compare, by.x = c("HomeTeam", "GameKey"), by.y = c("FocusTeam", "GameKey")) %>% 
+  rename(Season = Season.x, Home_Average_Goals_Above_GAA_prior = Average_Goals_Above_GAA_prior, HomeGAA_prior = GAA_prior,) %>% 
+  select(-Season.y, -GF, -GA, -GA_limited, -GAA, -GameNumber_other, -GF_other, -GA_other, -GA_limited_other, -GAA_other, -GAA_prior_other, -Goals_Above_GAA, -Average_Goals_Above_GAA, -GameNumber, -OtherTeam)
+
+
+
+GameData_PPG_GAA <- merge(GameData_PPG_GAA, TeamGameGAA_compare, by.x = c("AwayTeam", "GameKey"), by.y = c("FocusTeam", "GameKey")) %>% 
+  rename(Season = Season.x, Away_Average_Goals_Above_GAA_prior = Average_Goals_Above_GAA_prior, AwayGAA_prior = GAA_prior,) %>% 
+  select(-Season.y, -GF, -GA, -GA_limited, -GAA, -GameNumber_other, -GF_other, -GA_other, -GA_limited_other, -GAA_other, -GAA_prior_other, -Goals_Above_GAA, -Average_Goals_Above_GAA, -GameNumber, -OtherTeam)
+
+GameData_PPG_GAA <- GameData_PPG_GAA %>% mutate(HomeExpectedGoals = Home_Average_Goals_Above_GAA_prior + AwayGAA_prior,
+                            AwayExpectedGoals = Away_Average_Goals_Above_GAA_prior + HomeGAA_prior,)
+
+GameData_PPG_GAA <- GameData_PPG_GAA %>% mutate(Expected_Goals_Diff_ABS = abs(HomeExpectedGoals - AwayExpectedGoals)
+                                                ,Expected_Goals_Diff = HomeExpectedGoals - AwayExpectedGoals)
+
+```
+
+
+
+Test Distributions
+```{r}
+#test basic distributions
+sum(GameData_PPG_GAA$OT)/nrow(GameData_PPG_GAA)
+
+TestSample <- GameData_PPG_GAA %>% filter(HomeGameNumber > 20 & AwayGameNumber > 20)
+sum(TestSample$OT)/nrow(TestSample)
+
+
+TestSample %>% group_by(OT) %>% summarize(mean(Expected_Goals_Diff_ABS)
+                                          ,q1 = quantile(Expected_Goals_Diff_ABS, 0.25),
+                                          ,q3 = quantile(Expected_Goals_Diff_ABS, 0.75))
+```
+
+```{r}
+ggplot(TestSample, aes(x=factor(OT), y=Expected_Goals_Diff_ABS)) + 
+    geom_boxplot()
+```
+```{r}
+
+
+ggplot(TestSample, aes(x = Expected_Goals_Diff_ABS, fill = factor(OT))) + 
+  geom_histogram(color = 1, alpha = 0.75,
+                 position = "identity") +
+  scale_fill_manual(values = c("#8795E8", "#FF6AD5"))
+```
+
+```{r}
+
+
+ggplot(TestSample, aes(x = log(Expected_Goals_Diff_ABS), fill = factor(OT))) + 
+  geom_histogram(color = 1, alpha = 0.75,
+                 position = "identity") +
+  scale_fill_manual(values = c("#8795E8", "#FF6AD5"))
+```
+Expected Goal Differential also seems to have a very slightly lower value for OT games
+
+
+Testing USAT
+```{r}
+
+summary(abs(GameData_PPG_GAA$usat))
+
+
+ggplot(GameData_PPG_GAA, aes(x = (usat),, fill = factor(OT))) +
+  geom_histogram()
+```
+
+Weighted USAT
+```{r}
+#Get USAT per game and PPG
+
+
+TeamGameUSAT <- data.frame()
+
+
+#team <- "Boston Bruins"
+#season <- "2017 - 2018"
+
+
+for (team in TeamInitlKey$Name) {
+  
+  for (season in unique(GameData_PPG_GAA$Season)) {
+    
+    
+   teamseason <- GameData_PPG_GAA %>% filter(Season == season) %>% filter(HomeTeam == team | AwayTeam == team) %>% arrange(Date)
+   
+   teamseason <- teamseason %>% mutate(GameNumber = row_number(), FocusTeam = team) %>% 
+     mutate(OtherTeam = if_else(FocusTeam == HomeTeam, AwayTeam, HomeTeam)) %>% 
+     relocate(FocusTeam, GameNumber, OtherTeam)
+
+   teamseason <- teamseason %>% mutate(PPG_post = case_when(FocusTeam == HomeTeam ~ HomePPG_post
+                                            ,FocusTeam == AwayTeam ~ AwayPPG_post)) %>% 
+     mutate(PPG_prior = case_when(FocusTeam == HomeTeam ~ HomePPG_prior
+                                            ,FocusTeam == AwayTeam ~ AwayPPG_prior)) %>% 
+     mutate(USAT = case_when(FocusTeam == HomeTeam ~ usat
+                                            ,FocusTeam == AwayTeam ~ -usat)) %>% 
+     select(Season, FocusTeam, GameNumber, OtherTeam, GameKey, PPG_post, PPG_prior, USAT)
+   
+  
+   
+   TeamGameUSAT <- rbind(TeamGameUSAT, teamseason)
+   
+  }
+}
+
+
+#join other team's stats to compare GF to other team's GAA
+
+TeamGameUSAT_compare <- data.frame()
+
+
+#team <- "Boston Bruins"
+#season <- "2017 - 2018"
+
+
+for (team in TeamInitlKey$Name) {
+  
+  for (season in unique(GameDataJoined_Cleaned$Season)) {
+    
+    
+   teamseason <- TeamGameUSAT %>% filter(Season == season) %>% filter(FocusTeam == team)
+   
+   teamseason <- merge(teamseason, TeamGameUSAT, by.x = c("OtherTeam", "GameKey"), by.y = c("FocusTeam", "GameKey")) %>% rename(Season = Season.x, GameNumber = GameNumber.x, PPG_post = PPG_post.x, PPG_prior = PPG_prior.x, USAT = USAT.x, GameNumber_other = GameNumber.y, PPG_post_other = PPG_post.y, PPG_prior_other = PPG_prior.y, USAT_other = USAT.y) %>%
+     select(-Season.y, -OtherTeam.y) %>% 
+     relocate(FocusTeam, GameNumber, OtherTeam) %>% 
+     arrange(GameNumber)
+   
+
+   teamseason <- teamseason %>% mutate(WeightingFactor = (PPG_prior - PPG_prior_other) / 2) 
+   
+   teamseason <- teamseason %>% mutate(USAT_weighted = 
+                 case_when(WeightingFactor > 0 ~ 
+                                      case_when( USAT > 0 ~ USAT - (USAT * WeightingFactor)
+                                                ,USAT < 0 ~ USAT - abs(USAT * WeightingFactor)
+                                                ,USAT == 0 ~ 0
+                                               )
+                          ,WeightingFactor < 0 ~ 
+                                      case_when( USAT > 0 ~ USAT + (USAT * WeightingFactor)
+                                                ,USAT < 0 ~ USAT + abs(USAT * WeightingFactor)
+                                                ,USAT == 0 ~ 0
+                                               )
+                          ,WeightingFactor == 0 ~ USAT
+                           ))
+   
+   teamseason <- teamseason %>% mutate(USAT_weighted_earlylimit = if_else(GameNumber <= 5, USAT, USAT_weighted))
+   
+   
+   teamseason <- teamseason %>% mutate(Average_USAT_weighted = cumsum(USAT_weighted_earlylimit) / GameNumber) #this is after the given game
+   
+   
+   teamseason <- teamseason %>% mutate(Average_USAT_weighted_prior = lag(Average_USAT_weighted)) %>% replace(is.na(.), 0)
+   
+   TeamGameUSAT_compare <- rbind(TeamGameUSAT_compare, teamseason)
+   
+  }
+}
+
+TeamGameUSAT_compare <- TeamGameUSAT_compare %>% select(FocusTeam, GameKey, Average_USAT_weighted_prior)
+
+
+#Attach
+GameData_PPG_GAA_SAT <- merge(GameData_PPG_GAA, TeamGameUSAT_compare, by.x = c("HomeTeam", "GameKey"), by.y = c("FocusTeam", "GameKey")) %>% 
+  rename(Home_Average_USAT_weighted_prior = Average_USAT_weighted_prior)
+
+
+
+GameData_PPG_GAA_SAT <- merge(GameData_PPG_GAA_SAT, TeamGameUSAT_compare, by.x = c("AwayTeam", "GameKey"), by.y = c("FocusTeam", "GameKey")) %>% 
+  rename(Away_Average_USAT_weighted_prior = Average_USAT_weighted_prior)
+
+
+
+GameData_PPG_GAA_SAT <- GameData_PPG_GAA_SAT %>% mutate(USAT_weighted_Diff_ABS = abs(Home_Average_USAT_weighted_prior - Away_Average_USAT_weighted_prior)
+                                                        ,USAT_weighted_Diff = Home_Average_USAT_weighted_prior - Away_Average_USAT_weighted_prior)
+```
+
+
+
+Test Distributions
+```{r}
+#test basic distributions
+sum(GameData_PPG_GAA_SAT$OT)/nrow(GameData_PPG_GAA_SAT)
+
+TestSample <- GameData_PPG_GAA_SAT %>% filter(HomeGameNumber > 20 & AwayGameNumber > 20)
+sum(TestSample$OT)/nrow(TestSample)
+
+
+TestSample %>% group_by(OT) %>% summarize(mean(USAT_weighted_Diff_ABS)
+                                          ,q1 = quantile(USAT_weighted_Diff_ABS, 0.25),
+                                          ,q3 = quantile(USAT_weighted_Diff_ABS, 0.75))
+```
+
+```{r}
+ggplot(TestSample, aes(x=factor(OT), y=USAT_weighted_Diff_ABS)) + 
+    geom_boxplot()
+```
+
+```{r}
+
+
+ggplot(TestSample, aes(x = USAT_weighted_Diff_ABS, fill = factor(OT))) + 
+  geom_histogram(color = 1, alpha = 0.75,
+                 position = "identity") +
+  scale_fill_manual(values = c("#8795E8", "#FF6AD5"))
+```
+
+```{r}
+
+
+ggplot(TestSample, aes(x = log(USAT_weighted_Diff_ABS), fill = factor(OT))) + 
+  geom_histogram(color = 1, alpha = 0.75,
+                 position = "identity") +
+  scale_fill_manual(values = c("#8795E8", "#FF6AD5"))
+```
+There seems to be a larger effect caused by USAT differences here
+
+
+
+Faceoff Win %
+
+```{r}
+
+summary(abs(GameData_PPG_GAA_SAT$`fow%`))
+
+
+ggplot(GameData_PPG_GAA_SAT, aes(x = (`fow%`), fill = factor(OT))) +
+  geom_histogram()
+```
+
+less than 40/greater than 60 seems to be an outlier case. will force those to be the min/max.
+
+
+
+```{r}
+#Get USAT per game and PPG
+
+
+TeamGameFO <- data.frame()
+
+
+#team <- "Boston Bruins"
+#season <- "2017 - 2018"
+
+
+for (team in TeamInitlKey$Name) {
+  
+  for (season in unique(GameData_PPG_GAA_SAT$Season)) {
+    
+    
+   teamseason <- GameData_PPG_GAA_SAT %>% filter(Season == season) %>% filter(HomeTeam == team | AwayTeam == team) %>% arrange(Date)
+   
+   teamseason <- teamseason %>% mutate(GameNumber = row_number(), FocusTeam = team) %>% 
+     mutate(OtherTeam = if_else(FocusTeam == HomeTeam, AwayTeam, HomeTeam)) %>% 
+     relocate(FocusTeam, GameNumber, OtherTeam)
+
+   teamseason <- teamseason %>% mutate(PPG_post = case_when(FocusTeam == HomeTeam ~ HomePPG_post
+                                            ,FocusTeam == AwayTeam ~ AwayPPG_post)) %>% 
+     mutate(PPG_prior = case_when(FocusTeam == HomeTeam ~ HomePPG_prior
+                                            ,FocusTeam == AwayTeam ~ AwayPPG_prior)) %>% 
+     mutate(FOP = case_when(FocusTeam == HomeTeam ~ `fow%`
+                                            ,FocusTeam == AwayTeam ~ 100 - `fow%`)) %>% 
+     select(Season, FocusTeam, GameNumber, OtherTeam, GameKey, PPG_post, PPG_prior, FOP)
+   
+  
+   
+   TeamGameFO <- rbind(TeamGameFO, teamseason)
+   
+  }
+}
+
+
+#join other team's stats to compare GF to other team's GAA
+
+TeamGameFO_compare <- data.frame()
+
+
+#team <- "Boston Bruins"
+#season <- "2017 - 2018"
+
+
+for (team in TeamInitlKey$Name) {
+  
+  for (season in unique(GameDataJoined_Cleaned$Season)) {
+    
+    
+   teamseason <- TeamGameFO %>% filter(Season == season) %>% filter(FocusTeam == team)
+   
+   teamseason <- merge(teamseason, TeamGameFO, by.x = c("OtherTeam", "GameKey"), by.y = c("FocusTeam", "GameKey")) %>% rename(Season = Season.x, GameNumber = GameNumber.x, PPG_post = PPG_post.x, PPG_prior = PPG_prior.x, FOP = FOP.x, GameNumber_other = GameNumber.y, PPG_post_other = PPG_post.y, PPG_prior_other = PPG_prior.y, FOP_other = FOP.y) %>%
+     select(-Season.y, -OtherTeam.y) %>% 
+     relocate(FocusTeam, GameNumber, OtherTeam) %>% 
+     arrange(GameNumber)
+   
+
+   teamseason <- teamseason %>% mutate(WeightingFactor = (PPG_prior - PPG_prior_other) / 2) 
+   
+   teamseason <- teamseason %>% mutate(FOP_weighted = #adjusting % by 10 at max
+                 case_when(WeightingFactor > 0 ~ 
+                                      case_when( FOP > 50 ~ FOP - ((FOP-50) * WeightingFactor) 
+                                                ,FOP < 50 ~ FOP - abs((50-FOP) * WeightingFactor)
+                                                ,FOP == 50 ~ 50
+                                               )
+                          ,WeightingFactor < 0 ~ 
+                                      case_when( FOP > 50 ~ FOP + ((FOP-50) * WeightingFactor)
+                                                ,FOP < 50 ~ FOP + abs((50-FOP) * WeightingFactor)
+                                                ,FOP == 50 ~ 50
+                                               )
+                          ,WeightingFactor == 0 ~ FOP
+                           ))
+   
+   teamseason <- teamseason %>% mutate(FOP_weighted_earlylimit = if_else(GameNumber <= 5, FOP, FOP_weighted))
+   
+   teamseason <- teamseason %>% mutate(FOP_weighted_earlylimit = case_when(
+     FOP_weighted_earlylimit > 60 ~ 60, 
+     FOP_weighted_earlylimit < 40 ~ 40,
+     FOP_weighted_earlylimit <= 60 & FOP_weighted_earlylimit >= 40 ~ FOP_weighted_earlylimit))
+   
+   
+   teamseason <- teamseason %>% mutate(Average_FOP_weighted = cumsum(FOP_weighted_earlylimit) / GameNumber) #this is after the given game
+   
+   
+   teamseason <- teamseason %>% mutate(Average_FOP_weighted_prior = lag(Average_FOP_weighted)) %>% replace(is.na(.), 0)
+   
+   TeamGameFO_compare <- rbind(TeamGameFO_compare, teamseason)
+   
+  }
+}
+
+TeamGameFO_compare <- TeamGameFO_compare %>% select(FocusTeam, GameKey, Average_FOP_weighted_prior)
+
+
+#Attach
+GameData_PPG_GAA_SAT_FOP <- merge(GameData_PPG_GAA_SAT, TeamGameFO_compare, by.x = c("HomeTeam", "GameKey"), by.y = c("FocusTeam", "GameKey")) %>% 
+  rename(Home_Average_FOP_weighted_prior = Average_FOP_weighted_prior)
+
+
+
+GameData_PPG_GAA_SAT_FOP <- merge(GameData_PPG_GAA_SAT_FOP, TeamGameFO_compare, by.x = c("AwayTeam", "GameKey"), by.y = c("FocusTeam", "GameKey")) %>% 
+  rename(Away_Average_FOP_weighted_prior = Average_FOP_weighted_prior)
+
+
+
+GameData_PPG_GAA_SAT_FOP <- GameData_PPG_GAA_SAT_FOP %>% mutate(FOP_weighted_Diff_ABS = abs(Home_Average_FOP_weighted_prior - Away_Average_FOP_weighted_prior)
+                                                                ,FOP_weighted_Diff = Home_Average_FOP_weighted_prior - Away_Average_FOP_weighted_prior)
+```
+
+
+Test Distributions
+```{r}
+#test basic distributions
+sum(GameData_PPG_GAA_SAT_FOP$OT)/nrow(GameData_PPG_GAA_SAT_FOP)
+
+TestSample <- GameData_PPG_GAA_SAT_FOP %>% filter(HomeGameNumber > 20 & AwayGameNumber > 20)
+sum(TestSample$OT)/nrow(TestSample)
+
+
+TestSample %>% group_by(OT) %>% summarize(mean(FOP_weighted_Diff_ABS)
+                                          ,q1 = quantile(FOP_weighted_Diff_ABS, 0.25),
+                                          ,q3 = quantile(FOP_weighted_Diff_ABS, 0.75))
+```
+
+```{r}
+ggplot(TestSample, aes(x=factor(OT), y=FOP_weighted_Diff_ABS)) + 
+    geom_boxplot()
+```
+```{r}
+
+
+ggplot(TestSample, aes(x = FOP_weighted_Diff_ABS, fill = factor(OT))) + 
+  geom_histogram(color = 1, alpha = 0.75,
+                 position = "identity") +
+  scale_fill_manual(values = c("#8795E8", "#FF6AD5"))
+```
+
+```{r}
+
+
+ggplot(TestSample, aes(x = log(FOP_weighted_Diff_ABS), fill = factor(OT))) + 
+  geom_histogram(color = 1, alpha = 0.75,
+                 position = "identity") +
+  scale_fill_manual(values = c("#8795E8", "#FF6AD5"))
+```
+
+Faceoffs aren't really showing what we want/expected. But maybe it is still useful?
+
+
+
+Power Play vs Penalty Kill
+
+(PP%_home - PK%_away) - (PP%_away - PK%_home) = Special Teams Value (STV)
+
+
+```{r}
+#Get PP count, successes, PP given, and PK per game
+
+
+TeamGameSTV <- data.frame()
+
+
+#team <- "Boston Bruins"
+#season <- "2017 - 2018"
+
+
+for (team in TeamInitlKey$Name) {
+  
+  for (season in unique(GameData_PPG_GAA_SAT_FOP$Season)) {
+    
+    
+   teamseason <- GameData_PPG_GAA_SAT_FOP %>% filter(Season == season) %>% filter(HomeTeam == team | AwayTeam == team) %>% arrange(Date)
+   
+   teamseason <- teamseason %>% mutate(GameNumber = row_number(), FocusTeam = team) %>% 
+     mutate(OtherTeam = if_else(FocusTeam == HomeTeam, AwayTeam, HomeTeam)) %>% 
+     relocate(FocusTeam, GameNumber, OtherTeam)
+
+   teamseason <- teamseason %>% mutate(PP_Opp = case_when(FocusTeam == HomeTeam ~ `Home  PP Opp`
+                                            ,FocusTeam == AwayTeam ~ `Away  PP Opp`)) %>% 
+     mutate(PP_G = case_when(FocusTeam == HomeTeam ~ `Home  PP GF`
+                                            ,FocusTeam == AwayTeam ~ `Away  PP GF`)) %>% 
+     mutate(PK_Opp = case_when(FocusTeam == HomeTeam ~ `Away  PP Opp`
+                                            ,FocusTeam == AwayTeam ~ `Home  PP Opp`)) %>% 
+     mutate(PK_Success = case_when(FocusTeam == HomeTeam ~ `Away  PP Opp` - `Away  PP GF`
+                                            ,FocusTeam == AwayTeam ~ `Home  PP Opp` - `Home  PP GF`)) %>%
+     mutate(PP_Opp_total = cumsum(PP_Opp), PP_G_total = cumsum(PP_G), PK_Opp_total = cumsum(PK_Opp), PK_Success_total = cumsum(PK_Success)) %>% 
+     select(Season, FocusTeam, GameNumber, OtherTeam, GameKey, PP_Opp, PP_G, PK_Opp, PK_Success, PP_Opp_total, PP_G_total, PK_Opp_total, PK_Success_total)
+   
+  
+   teamseason <- teamseason %>% mutate(`PP%_post` = PP_G_total / PP_Opp_total,
+                         `PK%_post` = PK_Success_total / PK_Opp_total) %>% 
+     mutate(`PP%_prior` = lag(`PP%_post`),
+            `PK%_prior` = lag(`PK%_post`))
+   
+   
+   TeamGameSTV <- rbind(TeamGameSTV, teamseason)
+   
+  }
+}
+
+#simplfy to stats we need
+TeamGameSTV <- TeamGameSTV %>% select(FocusTeam, GameNumber, GameKey, OtherTeam, `PP%_prior`, `PK%_prior`)
+
+
+
+
+
+#Attach
+GameData_PPG_GAA_SAT_FOP_STV <- merge(GameData_PPG_GAA_SAT_FOP, TeamGameSTV, by.x = c("HomeTeam", "GameKey"), by.y = c("FocusTeam", "GameKey")) %>% 
+  rename(`HomePP%_prior` = `PP%_prior`,
+         `HomePK%_prior` = `PK%_prior`)
+
+
+
+GameData_PPG_GAA_SAT_FOP_STV <- merge(GameData_PPG_GAA_SAT_FOP_STV, TeamGameSTV, by.x = c("AwayTeam", "GameKey"), by.y = c("FocusTeam", "GameKey")) %>% 
+  rename(`AwayPP%_prior` = `PP%_prior`,
+         `AwayPK%_prior` = `PK%_prior`)
+
+
+
+GameData_PPG_GAA_SAT_FOP_STV <- GameData_PPG_GAA_SAT_FOP_STV %>% mutate(SpecialTeamsValue_ABS = abs((`HomePP%_prior` - `AwayPK%_prior`) - (`AwayPP%_prior` - `HomePK%_prior`))
+                                                                        , SpecialTeamsValue = (`HomePP%_prior` - `AwayPK%_prior`) - (`AwayPP%_prior` - `HomePK%_prior`))
+```
+
+
+Test Distributions
+```{r}
+#test basic distributions
+sum(GameData_PPG_GAA_SAT_FOP_STV$OT)/nrow(GameData_PPG_GAA_SAT_FOP_STV)
+
+TestSample <- GameData_PPG_GAA_SAT_FOP_STV %>% filter(HomeGameNumber > 20 & AwayGameNumber > 20)
+sum(TestSample$OT)/nrow(TestSample)
+
+
+TestSample %>% group_by(OT) %>% summarize(mean(SpecialTeamsValue)
+                                          ,q1 = quantile(SpecialTeamsValue, 0.25),
+                                          ,q3 = quantile(SpecialTeamsValue, 0.75))
+```
+
+There seems to be a slight preference to OT if the teams are more evenly matched on special teams
+
+```{r}
+ggplot(TestSample, aes(x=factor(OT), y=SpecialTeamsValue)) + 
+    geom_boxplot()
+```
+```{r}
+
+
+ggplot(TestSample, aes(x = SpecialTeamsValue, fill = factor(OT))) + 
+  geom_histogram(color = 1, alpha = 0.75,
+                 position = "identity") +
+  scale_fill_manual(values = c("#8795E8", "#FF6AD5"))
+```
+
+```{r}
+
+
+ggplot(TestSample, aes(x = log(SpecialTeamsValue), fill = factor(OT))) + 
+  geom_histogram(color = 1, alpha = 0.75,
+                 position = "identity") +
+  scale_fill_manual(values = c("#8795E8", "#FF6AD5"))
+```
+
+
+Frequency of OT
+
+Total OT/Games - (home OT + Away OT) / (Home Games + Away Games)
+
+```{r}
+TeamGameOT <- data.frame()
+
+
+#team <- "Boston Bruins"
+#season <- "2017 - 2018"
+
+
+for (team in TeamInitlKey$Name) {
+  
+  for (season in unique(GameData_PPG_GAA_SAT_FOP_STV$Season)) {
+    
+    
+   teamseason <- GameData_PPG_GAA_SAT_FOP_STV %>% filter(Season == season) %>% filter(HomeTeam == team | AwayTeam == team) %>% arrange(Date)
+   
+   teamseason <- teamseason %>% mutate(GameNumber = row_number(), FocusTeam = team) %>% 
+     mutate(OtherTeam = if_else(FocusTeam == HomeTeam, AwayTeam, HomeTeam)) %>% 
+     relocate(FocusTeam, GameNumber, OtherTeam)
+
+   teamseason <- teamseason %>% 
+     select(Season, FocusTeam, GameNumber, OtherTeam, GameKey, OT)
+   
+  teamseason <- teamseason %>% mutate(OT_total = cumsum(OT)) %>% 
+    mutate(OT_total_prior = lag(OT_total))
+   
+   
+   
+   TeamGameOT <- rbind(TeamGameOT, teamseason)
+   
+  }
+}
+
+#simplfy to stats we need
+TeamGameOT <- TeamGameOT %>% select(FocusTeam, GameKey, OT_total_prior)
+
+#Attach
+GameData_PPG_GAA_SAT_FOP_STV_OT <- merge(GameData_PPG_GAA_SAT_FOP_STV, TeamGameOT, by.x = c("HomeTeam", "GameKey"), by.y = c("FocusTeam", "GameKey")) %>% 
+  rename(HomeOT_total_prior = OT_total_prior)
+
+
+
+GameData_PPG_GAA_SAT_FOP_STV_OT <- merge(GameData_PPG_GAA_SAT_FOP_STV_OT, TeamGameOT, by.x = c("AwayTeam", "GameKey"), by.y = c("FocusTeam", "GameKey")) %>% 
+  rename(AwayOT_total_prior = OT_total_prior)
+
+
+
+GameData_PPG_GAA_SAT_FOP_STV_OT <- GameData_PPG_GAA_SAT_FOP_STV_OT %>% mutate(OTperGame = abs((HomeOT_total_prior + AwayOT_total_prior) / ((HomeGameNumber - 1) + (AwayGameNumber - 1))))
+
+
+```
+
+Test Distributions
+```{r}
+#test basic distributions
+sum(GameData_PPG_GAA_SAT_FOP_STV_OT$OT)/nrow(GameData_PPG_GAA_SAT_FOP_STV_OT)
+
+TestSample <- GameData_PPG_GAA_SAT_FOP_STV_OT %>% filter(HomeGameNumber > 20 & AwayGameNumber > 20)
+sum(TestSample$OT)/nrow(TestSample)
+
+
+TestSample %>% group_by(OT) %>% summarize(mean(OTperGame)
+                                          ,q1 = quantile(OTperGame, 0.25),
+                                          ,q3 = quantile(OTperGame, 0.75))
+```
+```{r}
+ggplot(TestSample, aes(x=factor(OT), y=OTperGame)) + 
+    geom_boxplot()
+```
+```{r}
+
+
+ggplot(TestSample, aes(x = OTperGame, fill = factor(OT))) + 
+  geom_histogram(color = 1, alpha = 0.75,
+                 position = "identity") +
+  scale_fill_manual(values = c("#8795E8", "#FF6AD5"))
+```
+
+
+Active Team Salary
+
+See Scrape Players and Salaries for all the work that went into this
+```{r}
+load("ContractDifferences.RData")
+
+#Normalize Formatting on GameKey
+GameData_PPG_GAA_SAT_FOP_STV_OT <- GameData_PPG_GAA_SAT_FOP_STV_OT %>% mutate(GameKey = str_squish(GameKey))
+
+ContractDifferences <- ContractDifferences %>% mutate(GameKey = str_squish(GameKeyBeta)) %>% select(-GameKeyBeta)
+
+#Montreal has an accent
+library(stringi)
+GameData_PPG_GAA_SAT_FOP_STV_OT <- GameData_PPG_GAA_SAT_FOP_STV_OT %>% mutate(GameKey = stri_trans_general(str = GameKey, id = "Latin-ASCII"))
+
+ContractDifferences <- ContractDifferences %>% mutate(GameKey = stri_trans_general(str = GameKey, id = "Latin-ASCII"))
+
+
+#Join
+GameData_PPG_GAA_SAT_FOP_STV_OT_CT <- left_join(GameData_PPG_GAA_SAT_FOP_STV_OT, ContractDifferences, by = c("GameKey" = "GameKey"))
+
+#Test for NA
+GameData_PPG_GAA_SAT_FOP_STV_OT_CT %>% filter(is.na(ContractDifference_ABS))
+
+```
+
+
+
+
+
+Test Distributions
+```{r}
+#test basic distributions
+sum(GameData_PPG_GAA_SAT_FOP_STV_OT_CT$OT)/nrow(GameData_PPG_GAA_SAT_FOP_STV_OT_CT)
+
+TestSample <- GameData_PPG_GAA_SAT_FOP_STV_OT_CT %>% filter(HomeGameNumber > 20 & AwayGameNumber > 20)
+sum(TestSample$OT)/nrow(TestSample)
+
+
+TestSample %>% group_by(OT) %>% summarize(mean(ContractDifference_ABS)
+                                          ,q1 = quantile(ContractDifference_ABS, 0.25),
+                                          ,q3 = quantile(ContractDifference_ABS, 0.75)
+                                          )
+```
+
+```{r}
+ggplot(TestSample, aes(x=factor(OT), y=ContractDifference_ABS)) + 
+    geom_boxplot()
+```
+
+```{r}
+
+
+ggplot(TestSample, aes(x = ContractDifference_ABS, fill = factor(OT))) + 
+  geom_histogram(color = 1, alpha = 0.75,
+                 position = "identity") +
+  scale_fill_manual(values = c("#8795E8", "#FF6AD5"))
+```
+
+```{r}
+
+
+ggplot(TestSample, aes(x = log(ContractDifference_ABS), fill = factor(OT))) + 
+  geom_histogram(color = 1, alpha = 0.75,
+                 position = "identity") +
+  scale_fill_manual(values = c("#8795E8", "#FF6AD5"))
+```
+
+
+
+
+
+
+
+
+
+
+
+#Identify Divisional/Conference Matchups
+```{r}
+Divisions_2014_to_2016 <- data.frame(Name = c("Boston Bruins", "Buffalo Sabres", "Detroit Red Wings", "Florida Panthers", "Montréal Canadiens", "Ottawa Senators", "Tampa Bay Lightning", "Toronto Maple Leafs",
+                                              "Carolina Hurricanes", "Columbus Blue Jackets", "New Jersey Devils", "New York Islanders", "New York Rangers", "Philadelphia Flyers", "Pittsburgh Penguins", "Washington Capitals",
+                                              "Chicago Blackhawks", "Colorado Avalanche", "Dallas Stars", "Minnesota Wild", "Nashville Predators", "St. Louis Blues", "Winnipeg Jets",
+                                              "Anaheim Ducks", "Arizona Coyotes", "Calgary Flames", "Edmonton Oilers", "Los Angeles Kings", "San Jose Sharks", "Vancouver Canucks")
+                                     ,Conference = c(rep("Eastern", 16), rep("Western", 14))
+                                     ,Division = c(rep("Atlantic", 8), rep("Metropolitan", 8), rep("Central", 7), rep("Pacific", 7))
+                                     )
+
+
+Divisions_2017_to_2019 <- data.frame(Name = c("Boston Bruins", "Buffalo Sabres", "Detroit Red Wings", "Florida Panthers", "Montréal Canadiens", "Ottawa Senators", "Tampa Bay Lightning", "Toronto Maple Leafs",
+                                              "Carolina Hurricanes", "Columbus Blue Jackets", "New Jersey Devils", "New York Islanders", "New York Rangers", "Philadelphia Flyers", "Pittsburgh Penguins", "Washington Capitals",
+                                              "Chicago Blackhawks", "Colorado Avalanche", "Dallas Stars", "Minnesota Wild", "Nashville Predators", "St. Louis Blues", "Winnipeg Jets",
+                                              "Anaheim Ducks", "Arizona Coyotes", "Calgary Flames", "Edmonton Oilers", "Los Angeles Kings", "San Jose Sharks", "Vancouver Canucks", "Vegas Golden Knights")
+                                     ,Conference = c(rep("Eastern", 16), rep("Western", 15))
+                                     ,Division = c(rep("Atlantic", 8), rep("Metropolitan", 8), rep("Central", 7), rep("Pacific", 8))
+                                     )
+
+
+Divisions_2020 <- data.frame(Name = c("Calgary Flames", "Edmonton Oilers", "Montréal Canadiens", "Ottawa Senators", "Toronto Maple Leafs", "Vancouver Canucks", "Winnipeg Jets",
+                                              "Boston Bruins", "Buffalo Sabres", "New Jersey Devils", "New York Islanders", "New York Rangers", "Philadelphia Flyers", "Pittsburgh Penguins", "Washington Capitals",
+                                              "Carolina Hurricanes", "Chicago Blackhawks", "Columbus Blue Jackets", "Dallas Stars", "Detroit Red Wings", "Florida Panthers", "Nashville Predators", "Tampa Bay Lightning",
+                                              "Anaheim Ducks", "Arizona Coyotes", "Colorado Avalanche", "Los Angeles Kings", "Minnesota Wild", "St. Louis Blues", "San Jose Sharks", "Vegas Golden Knights")
+                                     ,Conference = c(rep("No Conferences", 31))
+                                     ,Division = c(rep("North", 7), rep("East", 8), rep("Central", 8), rep("West", 8))
+                                     )
+
+
+
+Divisions_2021_to_2024 <- data.frame(Name = c("Boston Bruins", "Buffalo Sabres", "Detroit Red Wings", "Florida Panthers", "Montréal Canadiens", "Ottawa Senators", "Tampa Bay Lightning", "Toronto Maple Leafs",
+                                              "Carolina Hurricanes", "Columbus Blue Jackets", "New Jersey Devils", "New York Islanders", "New York Rangers", "Philadelphia Flyers", "Pittsburgh Penguins", "Washington Capitals",
+                                              "Arizona Coyotes", "Chicago Blackhawks", "Colorado Avalanche", "Dallas Stars", "Minnesota Wild", "Nashville Predators", "St. Louis Blues", "Winnipeg Jets",
+                                              "Anaheim Ducks", "Calgary Flames", "Edmonton Oilers", "Los Angeles Kings", "San Jose Sharks", "Seattle Kraken", "Vancouver Canucks", "Vegas Golden Knights")
+                                     ,Conference = c(rep("Eastern", 16), rep("Western", 16))
+                                     ,Division = c(rep("Atlantic", 8), rep("Metropolitan", 8), rep("Central", 8), rep("Pacific", 8))
+                                     )
+
+
+
+
+
+DivisionData_2014_to_2016 <- GameData_PPG_GAA_SAT_FOP_STV_OT_CT %>% filter(Season %in% c("2014 - 2015", "2015 - 2016", "2016 - 2017")) %>% 
+  left_join(Divisions_2014_to_2016, by = join_by("AwayTeam" == "Name")) %>% rename(Away_Conference = Conference, Away_Division = Division) %>% 
+  left_join(Divisions_2014_to_2016, by = join_by("HomeTeam" == "Name")) %>% rename(Home_Conference = Conference, Home_Division = Division) %>% 
+  mutate(DivisionMatchup = if_else(Away_Division == Home_Division, 1, 0), ConferenceMatchup = if_else(Away_Conference == Home_Conference, 1, 0))
+
+
+DivisionData_2017_to_2019 <- GameData_PPG_GAA_SAT_FOP_STV_OT_CT %>% filter(Season %in% c("2017 - 2018", "2018 - 2019", "2019 - 2020")) %>% 
+  left_join(Divisions_2017_to_2019, by = join_by("AwayTeam" == "Name")) %>% rename(Away_Conference = Conference, Away_Division = Division) %>% 
+  left_join(Divisions_2017_to_2019, by = join_by("HomeTeam" == "Name")) %>% rename(Home_Conference = Conference, Home_Division = Division) %>% 
+  mutate(DivisionMatchup = if_else(Away_Division == Home_Division, 1, 0), ConferenceMatchup = if_else(Away_Conference == Home_Conference, 1, 0))
+
+DivisionData_2020 <- GameData_PPG_GAA_SAT_FOP_STV_OT_CT %>% filter(Season %in% c("2020 - 2021")) %>% 
+  left_join(Divisions_2020, by = join_by("AwayTeam" == "Name")) %>% rename(Away_Conference = Conference, Away_Division = Division) %>% 
+  left_join(Divisions_2020, by = join_by("HomeTeam" == "Name")) %>% rename(Home_Conference = Conference, Home_Division = Division) %>% 
+  mutate(DivisionMatchup = if_else(Away_Division == Home_Division, 1, 0), ConferenceMatchup = if_else(Away_Conference == Home_Conference, 1, 0))
+
+DivisionData_2021_to_2024 <- GameData_PPG_GAA_SAT_FOP_STV_OT_CT %>% filter(Season %in% c("2021 - 2022", "2022 - 2023", "2023 - 2024")) %>% 
+  left_join(Divisions_2021_to_2024, by = join_by("AwayTeam" == "Name")) %>% rename(Away_Conference = Conference, Away_Division = Division) %>% 
+  left_join(Divisions_2021_to_2024, by = join_by("HomeTeam" == "Name")) %>% rename(Home_Conference = Conference, Home_Division = Division) %>% 
+  mutate(DivisionMatchup = if_else(Away_Division == Home_Division, 1, 0), ConferenceMatchup = if_else(Away_Conference == Home_Conference, 1, 0))
+
+GameData_Divisions <- rbind(DivisionData_2014_to_2016, DivisionData_2017_to_2019, DivisionData_2020, DivisionData_2021_to_2024)
+
+```
+
+
+
+Points Away From Playoffs
+
+-Need current standings for every game
+
+```{r}
+#TeamGameOT <- data.frame()
+
+
+#team <- "Boston Bruins"
+#season <- "2017 - 2018"
+
+#i <- 1
+
+#n <- 1
+
+#Divisions and other things were weird in COVID Year. Removing to get rid of noise
+GameData_Divisions <- GameData_Divisions %>% filter(Season != "2020 - 2021")
+
+GameData_Divisions <- GameData_Divisions %>% mutate(Home_PointsFromPlayoffs = NA, Away_PointsFromPlayoffs = NA)
+
+
+for (i in 1:nrow(GameData_Divisions)) {
+  
+  tryCatch({
+  
+  #Get most recent game for each team
+  GamesInSeasonSoFar <- GameData_Divisions %>% filter(Season == GameData_Divisions[i,"Season"], Date < GameData_Divisions[i,"Date"])
+  
+  HomeGameMaxDate <- GamesInSeasonSoFar %>% group_by(HomeTeam) %>% summarise(MaxDateHome = max(Date))
+  
+  AwayGameMaxDate <- GamesInSeasonSoFar %>% group_by(AwayTeam) %>% summarise(MaxDateAway = max(Date))
+  
+  TeamsAndDates <- left_join(HomeGameMaxDate, AwayGameMaxDate , by = join_by(HomeTeam == AwayTeam)) %>% 
+    mutate(MostRecentHomeOrAway = if_else(MaxDateHome > MaxDateAway, "Home", "Away")) 
+   
+  HomeTeamsAndDates <- TeamsAndDates %>% filter(MostRecentHomeOrAway == "Home")
+  
+  AwayTeamsAndDates <- TeamsAndDates %>% filter(MostRecentHomeOrAway == "Away") %>% rename(AwayTeam = HomeTeam)
+  
+  HomeTeamsAndDates <- HomeTeamsAndDates %>% mutate(Points = NA, Conference = NA, Division = NA)
+  
+  for (n in 1:nrow(HomeTeamsAndDates)) {
+   HomeTeamsAndDates$Points[n] <- GamesInSeasonSoFar %>% filter(HomeTeam == HomeTeamsAndDates$HomeTeam[n], Date == HomeTeamsAndDates$MaxDateHome[n]) %>% select(Points = HomeTotalPoints_post) %>% as.numeric()
+   
+   HomeTeamsAndDates$Conference[n] <- GamesInSeasonSoFar %>% filter(HomeTeam == HomeTeamsAndDates$HomeTeam[n], Date == HomeTeamsAndDates$MaxDateHome[n]) %>% select(Conference = Home_Conference) %>% as.character()
+   
+   HomeTeamsAndDates$Division[n] <- GamesInSeasonSoFar %>% filter(HomeTeam == HomeTeamsAndDates$HomeTeam[n], Date == HomeTeamsAndDates$MaxDateHome[n]) %>% select(Division = Home_Division) %>% as.character()
+   
+  }
+
+  AwayTeamsAndDates <- AwayTeamsAndDates %>% mutate(Points = NA, Conference = NA, Division = NA)
+  
+  for (n in 1:nrow(AwayTeamsAndDates)) {
+   AwayTeamsAndDates$Points[n] <- GamesInSeasonSoFar %>% filter(AwayTeam == AwayTeamsAndDates$AwayTeam[n], Date == AwayTeamsAndDates$MaxDateAway[n]) %>% select(Points = AwayTotalPoints_post) %>% as.numeric()
+   
+   AwayTeamsAndDates$Conference[n] <- GamesInSeasonSoFar %>% filter(AwayTeam == AwayTeamsAndDates$AwayTeam[n], Date == AwayTeamsAndDates$MaxDateAway[n]) %>% select(Conference = Away_Conference) %>% as.character()
+   
+   AwayTeamsAndDates$Division[n] <- GamesInSeasonSoFar %>% filter(AwayTeam == AwayTeamsAndDates$AwayTeam[n], Date == AwayTeamsAndDates$MaxDateAway[n]) %>% select(Division = Away_Division) %>% as.character()
+   
+  }
+  
+  
+  
+  CurrentStandings <- rbind(
+  AwayTeamsAndDates %>% rename(Team = AwayTeam) %>% select(Team, Points, Conference, Division)
+  
+  ,HomeTeamsAndDates %>% rename(Team = HomeTeam) %>% select(Team, Points, Conference, Division)
+  )
+  
+  
+  #Get the home and away teams and determine how far they are from a playoff spot
+  
+  HomeTeam <- GameData_Divisions[i,"HomeTeam"]
+  
+  HomeConference <- GameData_Divisions[i,"Home_Conference"]
+  
+  HomeDivision <- GameData_Divisions[i,"Home_Division"]
+  
+  HomeDivsionPlayoffTeams <- CurrentStandings %>% filter(Division == HomeDivision) %>% slice_max(Points, n = 3, with_ties = FALSE)
+  
+  HomeOtherDivsionPlayoffTeams <- CurrentStandings %>% filter(Conference == HomeConference, Division != HomeDivision) %>% slice_max(Points, n = 3, with_ties = FALSE)
+  
+  HomeWildcardTeams <- CurrentStandings %>% filter(Conference == HomeConference, !Team %in% HomeDivsionPlayoffTeams$Team, !Team %in% HomeOtherDivsionPlayoffTeams$Team) %>% slice_max(Points, n = 2, with_ties = FALSE)
+  
+  HomePlayoffPointsCuttoff <- min(HomeDivsionPlayoffTeams$Points, HomeWildcardTeams$Points)
+  
+  AwayTeam <- GameData_Divisions[i,"AwayTeam"]
+  
+  AwayConference <- GameData_Divisions[i,"Away_Conference"]
+  
+  AwayDivision <- GameData_Divisions[i,"Away_Division"]
+  
+  AwayDivsionPlayoffTeams <- CurrentStandings %>% filter(Division == AwayDivision) %>% slice_max(Points, n = 3, with_ties = FALSE)
+  
+  AwayOtherDivsionPlayoffTeams <- CurrentStandings %>% filter(Conference == AwayConference, Division != AwayDivision) %>% slice_max(Points, n = 3, with_ties = FALSE)
+  
+  AwayWildcardTeams <- CurrentStandings %>% filter(Conference == AwayConference, !Team %in% AwayDivsionPlayoffTeams$Team, !Team %in% AwayOtherDivsionPlayoffTeams$Team) %>% slice_max(Points, n = 2, with_ties = FALSE)
+  
+  
+  AwayPlayoffPointsCuttoff <- min(AwayDivsionPlayoffTeams$Points, AwayWildcardTeams$Points)
+  
+  
+  
+  HomePoints <- GameData_Divisions[i,"HomePPG_prior"] * (GameData_Divisions[i, "HomeGameNumber"] - 1)
+  
+  AwayPoints <- GameData_Divisions[i,"AwayPPG_prior"] * (GameData_Divisions[i, "AwayGameNumber"] - 1)
+  
+  GameData_Divisions[i, "Home_PointsFromPlayoffs"] <- HomePlayoffPointsCuttoff - HomePoints
+  
+  GameData_Divisions[i, "Away_PointsFromPlayoffs"] <- AwayPlayoffPointsCuttoff - AwayPoints
+  
+  
+  }, error=function(e){})
+  
+}
+```
+
+```{r}
+save(GameData_Divisions, file = "GameData_Divisions.RData")
+```
+
+
+
+
+
+
+```{r}
+load("GameData_Divisions.RData")
+```
+
+
+
+
+
+
+Games in the last weeks, average hits per game, shot block %, streak
+```{r}
+
+TeamGame_stats <- data.frame()
+
+
+#team <- "Boston Bruins"
+#season <- "2017 - 2018"
+
+
+for (team in TeamInitlKey$Name) {
+  
+  for (season in unique(GameData_Divisions$Season)) {
+    
+    
+   teamseason <- GameData_Divisions %>% filter(Season == season) %>% filter(HomeTeam == team | AwayTeam == team) %>% arrange(Date)
+   
+   if (nrow(teamseason) != 0) {
+     
+   
+   
+   teamseason <- teamseason %>% mutate(GameNumber = row_number(), FocusTeam = team) %>% 
+     mutate(OtherTeam = if_else(FocusTeam == HomeTeam, AwayTeam, HomeTeam)) %>% 
+     relocate(FocusTeam, GameNumber, OtherTeam)
+
+   
+   #winning streak -- found here: https://www.r-bloggers.com/2020/06/detecting-streaks-in-r/
+  StreakTable <- teamseason %>% mutate(W = case_when(FocusTeam == HomeTeam ~ `Home  w`
+                                                     ,FocusTeam == AwayTeam ~ `Away  w`)
+                                       ,L = case_when(FocusTeam == HomeTeam ~ `Home  l`
+                                                     ,FocusTeam == AwayTeam ~ `Away  l`)
+                                       ,OT = case_when(FocusTeam == HomeTeam ~ `Home  ot`
+                                                     ,FocusTeam == AwayTeam ~ `Away  ot`)
+                                       ) %>% 
+    select(W,L,OT) %>% mutate(lagged=lag(W)) %>% #note: that's dplyr::lag, not stats::lag
+    mutate(start=(W != lagged))
+  StreakTable[1, "start"] <- TRUE
+  StreakTable <- StreakTable %>% mutate(streak_id=cumsum(start))
+  StreakTable <- StreakTable %>% group_by(streak_id) %>% mutate(streak=row_number()) %>%
+    ungroup()
+  #new part to make it negative for losing streak
+  StreakTable <- StreakTable %>% mutate(streakvalue = case_when(W == 0 ~ -streak,
+                                                   W == 1 ~ streak))
+  StreakTable <- StreakTable %>% mutate(streakvalue_prior = lag(streakvalue))
+
+
+   
+   
+   teamseason <- teamseason %>% mutate(Hits_Diff = case_when(FocusTeam == HomeTeam ~ `Home  Hits` - `Away  Hits`
+                                            ,FocusTeam == AwayTeam ~ `Away  Hits` - `Home  Hits`),
+                         Shots_Against = case_when(FocusTeam == HomeTeam ~ sat_against
+                                            ,FocusTeam == AwayTeam ~ sat_for),
+                         Blocked_Shots = case_when(FocusTeam == HomeTeam ~ `Home  Bks`
+                                            ,FocusTeam == AwayTeam ~ `Away  Bks`),
+                         Blocked_Percent = Blocked_Shots/Shots_Against
+                         ) %>% 
+     select(FocusTeam, GameNumber, OtherTeam, GameKey, Date, Hits_Diff, Shots_Against, Blocked_Shots,Blocked_Percent)
+                         
+      teamseason <- teamseason %>% mutate(GamesinLast7Days = NA)
+   
+   #gamenumber <- 20    
+      
+      
+               
+   for (gamenumber in 1:nrow(teamseason)) {
+     
+  CompareDate <- teamseason %>% filter(GameNumber == gamenumber) %>% pull(Date)
+  
+  GamesinLast7Days_value <- teamseason %>% filter(CompareDate - Date <= 7 & CompareDate - Date > 0) %>% summarise(Games = n()) %>% pull(Games)
+  
+
+  
+  teamseason[gamenumber,]$GamesinLast7Days <- GamesinLast7Days_value
+     
+     }                      
+   
+   teamseason <- teamseason %>% mutate(Blocked_Percent_post =  cumsum(Blocked_Shots) / cumsum(Shots_Against)
+                                       ,Hits_Diff_Avg_post = cumsum(Hits_Diff) / GameNumber
+                                       ,Blocked_Percent_prior = lag(Blocked_Percent_post)
+                                       ,Hits_Diff_Avg_prior = lag(Hits_Diff_Avg_post))
+      
+      
+  teamseason <- cbind(teamseason, StreakTable %>% select(streakvalue_prior))
+   
+   
+   TeamGame_stats <- rbind(TeamGame_stats, teamseason)
+   
+   }
+  }
+}
+
+TeamGame_stats <- TeamGame_stats %>% select(FocusTeam, GameKey, GamesinLast7Days, Blocked_Percent_prior, Hits_Diff_Avg_prior, streakvalue_prior)
+
+
+#Attach
+GameData_Div_stats <- merge(GameData_Divisions, TeamGame_stats, by.x = c("HomeTeam", "GameKey"), by.y = c("FocusTeam", "GameKey")) %>% 
+  rename(Home_GamesinLast7Days = GamesinLast7Days
+         ,Home_Blocked_Percent_prior = Blocked_Percent_prior
+         ,Home_Hits_Diff_Avg_prior = Hits_Diff_Avg_prior
+         ,Home_streakvalue_prior = streakvalue_prior)
+
+
+
+GameData_Div_stats <- merge(GameData_Div_stats, TeamGame_stats, by.x = c("AwayTeam", "GameKey"), by.y = c("FocusTeam", "GameKey")) %>% 
+  rename(Away_GamesinLast7Days = GamesinLast7Days
+         ,Away_Blocked_Percent_prior = Blocked_Percent_prior
+         ,Away_Hits_Diff_Avg_prior = Hits_Diff_Avg_prior
+         ,Away_streakvalue_prior = streakvalue_prior)
+
+
+GameData_Div_stats <- GameData_Div_stats %>% mutate(GamesinLast7Days_Diff = Home_GamesinLast7Days - Away_GamesinLast7Days
+                                                    ,Avg_Hits_Diff = Home_Hits_Diff_Avg_prior - Away_Hits_Diff_Avg_prior
+                                                    ,StreakValue_Diff = Home_streakvalue_prior - Away_streakvalue_prior)
+
+
+```
+
+
+
+
+OT vs Opponent, Avg Game Number
+```{r}
+#i <- 1
+
+GameData_Div_stats <- GameData_Div_stats %>% mutate(Matchup_OTs_prior = NA)
+
+for (i in 1:nrow(GameData_Div_stats)) {
+
+  Matchup_OTs_prior <- GameData_Div_stats %>% filter((HomeTeam == GameData_Div_stats$HomeTeam[i] | HomeTeam == GameData_Div_stats$AwayTeam[i]) &  
+                                  (AwayTeam == GameData_Div_stats$HomeTeam[i] | AwayTeam == GameData_Div_stats$AwayTeam[i]) &
+                                  Date < Date[i] &
+                                  Season == Season[i]
+                                ) %>% 
+    summarise(Matchup_OTs_prior = sum(OT)) %>% pull()
+
+  
+  GameData_Div_stats$Matchup_OTs_prior[i] <- Matchup_OTs_prior
+}
+
+
+GameData_Div_stats <- GameData_Div_stats %>% mutate(Avg_GameNumber = (HomeGameNumber + AwayGameNumber) / 2)
+```
+
+
+
+
+
+
+#Old Stuff with log. Doesn't work with 0's (can do +1 but want to keep more interpretable)
+
+```{r}
+PredictionData <- GameData_Div_stats %>% filter(HomeGameNumber > 20 & AwayGameNumber > 20) %>% 
+  select(GameKey,OT, PPG_Diff_ABS, Expected_Goals_Diff_ABS, USAT_weighted_Diff_ABS, FOP_weighted_Diff_ABS, SpecialTeamsValue, OTperGame, ContractDifference_ABS
+         ,DivisionMatchup, ConferenceMatchup, Home_PointsFromPlayoffs, Away_PointsFromPlayoffs, Home_GamesinLast7Days, Away_GamesinLast7Days, GamesinLast7Days_Diff, Home_Blocked_Percent_prior, Away_Blocked_Percent_prior, Home_Hits_Diff_Avg_prior, Away_Hits_Diff_Avg_prior, Avg_Hits_Diff) %>% 
+  mutate(PPG_Diff_ABS_log = log(PPG_Diff_ABS)
+         ,Expected_Goals_Diff_ABS_log = log(Expected_Goals_Diff_ABS)
+         ,USAT_weighted_Diff_ABS_log = log(USAT_weighted_Diff_ABS)
+         ,FOP_weighted_Diff_ABS_log = log(FOP_weighted_Diff_ABS)
+         ,SpecialTeamsValue_log = log(SpecialTeamsValue)
+         ,ContractDifference_ABS_log = log(ContractDifference_ABS)) 
+```
+
+```{r}
+save(PredictionData, file = "PredictionData.RData")
+```
+
+
+
+
+
+```{r}
+PredictionData2 <- GameData_Div_stats %>% filter(HomeGameNumber > 20 & AwayGameNumber > 20) %>% 
+  select(GameKey, Season, HomeTeam, AwayTeam, HomeGameNumber, AwayGameNumber, Date, OT, PPG_Diff_ABS, Expected_Goals_Diff, USAT_weighted_Diff, FOP_weighted_Diff, SpecialTeamsValue, OTperGame, ContractDifference
+         ,DivisionMatchup, ConferenceMatchup, Home_PointsFromPlayoffs, Away_PointsFromPlayoffs, Home_GamesinLast7Days, Away_GamesinLast7Days, GamesinLast7Days_Diff, Home_Blocked_Percent_prior, Away_Blocked_Percent_prior, Home_Hits_Diff_Avg_prior, Away_Hits_Diff_Avg_prior, Avg_Hits_Diff, StreakValue_Diff, Matchup_OTs_prior, Avg_GameNumber) 
+```
+
+```{r}
+save(PredictionData2, file = "PredictionData-NewFields.RData")
+```

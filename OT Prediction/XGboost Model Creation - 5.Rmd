@@ -1,0 +1,580 @@
+```{r}
+
+library(dplyr)
+library(xgboost)
+library(OptimalCutpoints)
+library(caret)
+library(SHAPforxgboost)
+#source("a_insights_shap_functions.r")
+library(ggplot2)
+library(parallel)
+#library(xgboostExplainer)
+
+library(foreach)
+library(doParallel)
+
+```
+
+
+
+
+```{r}
+load("PredictionData-3.RData")
+```
+
+```{r}
+#Create weighted 80/20 split
+set.seed(42)
+train.index <- createDataPartition(PredictionData3$OT, p = .8, list = FALSE)
+train_db <- PredictionData3[ train.index,]
+test_db  <- PredictionData3[-train.index,]
+
+summary(as.factor(train_db$OT))
+summary(as.factor(test_db$OT))
+```
+
+
+```{r}
+train_db <- train_db %>% select(-GameKey, -Season, -AwayTeam, -HomeTeam, -AwayGameNumber, -HomeGameNumber, -Date) 
+
+test_db <- test_db %>% select(-GameKey, -Season, -AwayTeam, -HomeTeam, -AwayGameNumber, -HomeGameNumber, -Date) 
+```
+
+#### Preparing for XGBoost
+```{r}
+dtrain <- xgb.DMatrix(data = as.matrix(train_db %>% select(-OT)), label = train_db$OT)
+dtest <- xgb.DMatrix(data = as.matrix(test_db %>% select(-OT)), label = test_db$OT)
+```
+
+
+#Parameter Tuning grid search
+
+```{r}
+#first grid
+#tuning_grid <- expand.grid(
+#    eta = c(0.1, 0.05, 0.3)
+#  , scale_pos_weight = c(1, 5, 10)
+#  #, nrounds = seq(100, 1000, by = 50)
+#  , max_depth_vals = c(3, 7, 10, 25)
+#  , min_child_weight = c(1, 5, 10, 20, 30)
+#  , gamma_vals = c(0, 0.05, 0.1, 0.2)
+#  , subsample = c(0.5, 0.7, 1)
+#  , colsample_by_tree = c(0.5, 0.7, 1)
+#)
+
+
+
+tuning_grid <- expand.grid(
+    eta = c(0.05, 0.01, 0.005)
+  , scale_pos_weight = c(1, 4, 5)
+  #, nrounds = seq(100, 1000, by = 50)
+  , max_depth_vals = c(3, 5, 7, 8)
+  , min_child_weight = c(1, 10, 30, 40)
+  , gamma_vals = c(0, 0.05, 0.1)
+  , subsample = c(0.5, 0.7, 1)
+  , colsample_by_tree = c(0.5, 0.75, 1)
+  
+)
+
+
+
+```
+
+Using foreach
+```{r}
+
+
+start.time <- Sys.time()
+
+cl <- makeCluster(12) #number of cores
+
+registerDoParallel(cl)
+
+ParametersResults <- foreach(i = 1:nrow(tuning_grid), .combine = "rbind", .packages = c("xgboost", "dplyr")) %dopar%  {
+  
+  dtrain <- xgb.DMatrix(data = as.matrix(train_db %>% select(-OT)), label = train_db$OT)
+  
+  set.seed(42)
+bst_mod <- xgb.cv(data = dtrain, # Set training data
+              
+              nfold = 5, # Use 5 fold cross-validation
+               
+              eta = tuning_grid[i,]$eta, # Set learning rate
+              max.depth = tuning_grid[i,]$max_depth_vals, # Set max depth
+              min_child_weight = tuning_grid[i,]$min_child_weight, # Set minimum number of samples in node to split
+              gamma = tuning_grid[i,]$gamma_vals, # Set minimum loss reduction for split
+              subsample = tuning_grid[i,]$subsample, # Set proportion of training data to use in tree
+              colsample_bytree =  tuning_grid[i,]$colsample_by_tree, # Set number of variables to use in each tree
+              
+              scale_pos_weight = tuning_grid[i,]$scale_pos_weight,
+               
+              nrounds = 1500, # Set number of rounds
+              #early_stopping_rounds = 200, # Set number of rounds to stop at if there is no improvement
+               
+              verbose = 0, # 1 - Prints out fit
+              nthread = 1, # Set number of parallel threads
+             # print_every_n = 100, # Prints out result every 20th iteration
+              
+              objective = "binary:logistic", # Set objective
+              eval_metric = "aucpr"
+              #,eval_metric = "error" # Set evaluation metric to use
+)
+  
+  
+
+aucpr_max <- max(bst_mod$evaluation_log$test_aucpr_mean)
+
+round_aucpr_max <- match(aucpr_max, bst_mod$evaluation_log$test_aucpr_mean)
+
+#error_of_max_auc <- bst_mod$evaluation_log$test_error_mean[round_aucpr_max]
+
+#error_min <- min(bst_mod$evaluation_log$test_error_mean)
+
+#round_error_min <- match(error_min, bst_mod$evaluation_log$test_error_mean)
+
+#auc_of_min_error <- bst_mod$evaluation_log$test_auc_mean[round_error_min]
+
+
+data.frame(tuning_grid[i,], aucpr_max, round_aucpr_max)#, error_of_max_auc, error_min, round_error_min, auc_of_min_error)
+
+
+
+}
+
+
+stopCluster(cl)
+
+
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+
+save(ParametersResults, file = "ParametersResults3.RData")
+```
+
+
+```{r}
+time.taken
+```
+
+Best
+```{r}
+set.seed(42)
+bst_final_MaxAUCPR <- xgboost(data = dtrain, # Set training data
+              
+      
+              eta = 0.01, # Set learning rate
+              max.depth = 3, # Set max depth
+              min_child_weight = 30, # Set minimum number of samples in node to split
+              gamma = 0.00, # Set minimum loss reduction for split
+              subsample = 1.0, # Set proportion of training data to use in tree
+              colsample_bytree =  0.75, # Set number of variables to use in each tree
+              
+              scale_pos_weight = 1,
+               
+              nrounds = 5, # Set number of rounds
+              #early_stopping_rounds = 50, # Set number of rounds to stop at if there is no improvement
+               
+              verbose = 1, # 1 - Prints out fit
+              nthread = 2, # Set number of parallel threads
+              print_every_n = 20, # Prints out result every 20th iteration
+              
+              objective = "binary:logistic", # Set objective
+              eval_metric = "aucpr"
+              ) # Set evaluation metric to use
+```
+
+```{r}
+boost_preds <- predict(bst_final_MaxAUCPR, dtrain) # Create predictions for xgboost model
+# Join predictions and actual
+pred_dat <- cbind.data.frame(boost_preds , train_db$OT)
+names(pred_dat) <- c("predictions", "response")
+oc<- optimal.cutpoints(X = "predictions",
+                       status = "response",
+                       tag.healthy = 0,
+                       data = pred_dat,
+                       methods = "MaxProdNPVPPV")
+
+boost_preds_MaxAUCPR <- predict(bst_final_MaxAUCPR, dtest) # Create predictions for xgboost model
+
+pred_dat <- cbind.data.frame(boost_preds_MaxAUCPR , test_db$OT)#
+# Convert predictions to classes, using optimal cut-off
+boost_pred_class_MaxAUCPR <- rep(0, length(boost_preds_MaxAUCPR))
+#boost_pred_class_MaxAUCPR[boost_preds_MaxAUCPR >= oc$MaxProdNPVPPV$Global$optimal.cutoff$cutoff[1]] <- 1
+
+boost_pred_class_MaxAUCPR[boost_preds_MaxAUCPR >= 0.486] <- 1
+
+t_MaxAUCPR <- table(boost_pred_class_MaxAUCPR, actual = test_db$OT) # Create table
+confusionMatrix(t_MaxAUCPR, positive = "1") # Produce confusion matrix
+```
+
+
+```{r}
+set.seed(42)
+bst_final_MaxAUCPR <- xgboost(data = dtrain, # Set training data
+              
+      
+              eta = 0.01, # Set learning rate
+              max.depth = 3, # Set max depth
+              min_child_weight = 10, # Set minimum number of samples in node to split
+              gamma = 0.00, # Set minimum loss reduction for split
+              subsample = 1.0, # Set proportion of training data to use in tree
+              colsample_bytree =  0.5, # Set number of variables to use in each tree
+              
+              scale_pos_weight = 5,
+               
+              nrounds = 34, # Set number of rounds
+              #early_stopping_rounds = 50, # Set number of rounds to stop at if there is no improvement
+               
+              verbose = 1, # 1 - Prints out fit
+              nthread = 2, # Set number of parallel threads
+              print_every_n = 20, # Prints out result every 20th iteration
+              
+              objective = "binary:logistic", # Set objective
+              eval_metric = "aucpr"
+              ) # Set evaluation metric to use
+```
+
+
+```{r}
+boost_preds <- predict(bst_final_MaxAUCPR, dtrain) # Create predictions for xgboost model
+# Join predictions and actual
+pred_dat <- cbind.data.frame(boost_preds , train_db$OT)
+names(pred_dat) <- c("predictions", "response")
+oc<- optimal.cutpoints(X = "predictions",
+                       status = "response",
+                       tag.healthy = 0,
+                       data = pred_dat,
+                       methods = "MaxProdNPVPPV")
+
+boost_preds_MaxAUCPR <- predict(bst_final_MaxAUCPR, dtest) # Create predictions for xgboost model
+
+pred_dat <- cbind.data.frame(boost_preds_MaxAUCPR , test_db$OT)#
+# Convert predictions to classes, using optimal cut-off
+boost_pred_class_MaxAUCPR <- rep(0, length(boost_preds_MaxAUCPR))
+#boost_pred_class_MaxAUCPR[boost_preds_MaxAUCPR >= oc$MaxProdNPVPPV$Global$optimal.cutoff$cutoff[1]] <- 1
+
+boost_pred_class_MaxAUCPR[boost_preds_MaxAUCPR >= 0.5] <- 1
+
+t_MaxAUCPR <- table(boost_pred_class_MaxAUCPR, actual = test_db$OT) # Create table
+confusionMatrix(t_MaxAUCPR, positive = "1") # Produce confusion matrix
+```
+
+```{r}
+set.seed(42)
+bst_final_MaxAUCPR <- xgboost(data = dtrain, # Set training data
+              
+      
+              eta = 0.005, # Set learning rate
+              max.depth = 3, # Set max depth
+              min_child_weight = 30, # Set minimum number of samples in node to split
+              gamma = 0.10, # Set minimum loss reduction for split
+              subsample = 1.0, # Set proportion of training data to use in tree
+              colsample_bytree =  0.5, # Set number of variables to use in each tree
+              
+              scale_pos_weight = 1,
+               
+              nrounds = 131, # Set number of rounds
+              #early_stopping_rounds = 50, # Set number of rounds to stop at if there is no improvement
+               
+              verbose = 1, # 1 - Prints out fit
+              nthread = 2, # Set number of parallel threads
+              print_every_n = 20, # Prints out result every 20th iteration
+              
+              objective = "binary:logistic", # Set objective
+              eval_metric = "aucpr"
+              ) # Set evaluation metric to use
+```
+
+```{r}
+boost_preds <- predict(bst_final_MaxAUCPR, dtrain) # Create predictions for xgboost model
+# Join predictions and actual
+pred_dat <- cbind.data.frame(boost_preds , train_db$OT)
+names(pred_dat) <- c("predictions", "response")
+oc<- optimal.cutpoints(X = "predictions",
+                       status = "response",
+                       tag.healthy = 0,
+                       data = pred_dat,
+                       methods = "MaxProdNPVPPV")
+
+boost_preds_MaxAUCPR <- predict(bst_final_MaxAUCPR, dtest) # Create predictions for xgboost model
+
+pred_dat <- cbind.data.frame(boost_preds_MaxAUCPR , test_db$OT)#
+# Convert predictions to classes, using optimal cut-off
+boost_pred_class_MaxAUCPR <- rep(0, length(boost_preds_MaxAUCPR))
+#boost_pred_class_MaxAUCPR[boost_preds_MaxAUCPR >= oc$MaxProdNPVPPV$Global$optimal.cutoff$cutoff[1]] <- 1
+
+boost_pred_class_MaxAUCPR[boost_preds_MaxAUCPR >= 0.38] <- 1
+
+t_MaxAUCPR <- table(boost_pred_class_MaxAUCPR, actual = test_db$OT) # Create table
+confusionMatrix(t_MaxAUCPR, positive = "1") # Produce confusion matrix
+```
+
+```{r}
+load("ParametersResults3.RData")
+```
+
+```{r}
+set.seed(42)
+bst_final_MaxAUCPR <- xgboost(data = dtrain, # Set training data
+              
+      
+              eta = 0.005, # Set learning rate
+              max.depth = 3, # Set max depth
+              min_child_weight = 1, # Set minimum number of samples in node to split
+              gamma = 0.00, # Set minimum loss reduction for split
+              subsample = 1.0, # Set proportion of training data to use in tree
+              colsample_bytree =  0.75, # Set number of variables to use in each tree
+              
+              scale_pos_weight = 4,
+               
+              nrounds = 95, # Set number of rounds
+              #early_stopping_rounds = 50, # Set number of rounds to stop at if there is no improvement
+               
+              verbose = 1, # 1 - Prints out fit
+              nthread = 2, # Set number of parallel threads
+              print_every_n = 20, # Prints out result every 20th iteration
+              
+              objective = "binary:logistic", # Set objective
+              eval_metric = "aucpr"
+              ) # Set evaluation metric to use
+```
+
+```{r}
+boost_preds <- predict(bst_final_MaxAUCPR, dtrain) # Create predictions for xgboost model
+# Join predictions and actual
+pred_dat <- cbind.data.frame(boost_preds , train_db$OT)
+names(pred_dat) <- c("predictions", "response")
+oc<- optimal.cutpoints(X = "predictions",
+                       status = "response",
+                       tag.healthy = 0,
+                       data = pred_dat,
+                       methods = "MaxProdNPVPPV")
+
+boost_preds_MaxAUCPR <- predict(bst_final_MaxAUCPR, dtest) # Create predictions for xgboost model
+
+pred_dat <- cbind.data.frame(boost_preds_MaxAUCPR , test_db$OT)#
+# Convert predictions to classes, using optimal cut-off
+boost_pred_class_MaxAUCPR <- rep(0, length(boost_preds_MaxAUCPR))
+#boost_pred_class_MaxAUCPR[boost_preds_MaxAUCPR >= oc$MaxProdNPVPPV$Global$optimal.cutoff$cutoff[1]] <- 1
+
+boost_pred_class_MaxAUCPR[boost_preds_MaxAUCPR >= 0.56] <- 1
+
+t_MaxAUCPR <- table(boost_pred_class_MaxAUCPR, actual = test_db$OT) # Create table
+confusionMatrix(t_MaxAUCPR, positive = "1") # Produce confusion matrix
+```
+```{r}
+summary(boost_preds)
+```
+```{r}
+set.seed(42)
+bst_final_MaxAUCPR <- xgboost(data = dtrain, # Set training data
+              
+      
+              eta = 0.01, # Set learning rate
+              max.depth = 3, # Set max depth
+              min_child_weight = 10, # Set minimum number of samples in node to split
+              gamma = 0.00, # Set minimum loss reduction for split
+              subsample = 1.0, # Set proportion of training data to use in tree
+              colsample_bytree =  0.75, # Set number of variables to use in each tree
+              
+              scale_pos_weight = 1,
+               
+              nrounds = 35, # Set number of rounds
+              #early_stopping_rounds = 50, # Set number of rounds to stop at if there is no improvement
+               
+              verbose = 1, # 1 - Prints out fit
+              nthread = 2, # Set number of parallel threads
+              print_every_n = 20, # Prints out result every 20th iteration
+              
+              objective = "binary:logistic", # Set objective
+              eval_metric = "aucpr"
+              ) # Set evaluation metric to use
+```
+
+
+```{r}
+boost_preds <- predict(bst_final_MaxAUCPR, dtrain) # Create predictions for xgboost model
+# Join predictions and actual
+pred_dat <- cbind.data.frame(boost_preds , train_db$OT)
+names(pred_dat) <- c("predictions", "response")
+oc<- optimal.cutpoints(X = "predictions",
+                       status = "response",
+                       tag.healthy = 0,
+                       data = pred_dat,
+                       methods = "MaxProdNPVPPV")
+
+boost_preds_MaxAUCPR <- predict(bst_final_MaxAUCPR, dtest) # Create predictions for xgboost model
+
+pred_dat <- cbind.data.frame(boost_preds_MaxAUCPR , test_db$OT)#
+# Convert predictions to classes, using optimal cut-off
+boost_pred_class_MaxAUCPR <- rep(0, length(boost_preds_MaxAUCPR))
+#boost_pred_class_MaxAUCPR[boost_preds_MaxAUCPR >= oc$MaxProdNPVPPV$Global$optimal.cutoff$cutoff[1]] <- 1
+
+boost_pred_class_MaxAUCPR[boost_preds_MaxAUCPR >= 0.41] <- 1
+
+t_MaxAUCPR <- table(boost_pred_class_MaxAUCPR, actual = test_db$OT) # Create table
+confusionMatrix(t_MaxAUCPR, positive = "1") # Produce confusion matrix
+```
+
+```{r}
+summary(boost_preds)
+```
+```{r}
+set.seed(42)
+bst_final_MaxAUCPR <- xgboost(data = dtrain, # Set training data
+              
+      
+              eta = 0.005, # Set learning rate
+              max.depth = 8, # Set max depth
+              min_child_weight = 30, # Set minimum number of samples in node to split
+              gamma = 0.10, # Set minimum loss reduction for split
+              subsample = 1.0, # Set proportion of training data to use in tree
+              colsample_bytree =  0.75, # Set number of variables to use in each tree
+              
+              scale_pos_weight = 1,
+               
+              nrounds = 76, # Set number of rounds
+              #early_stopping_rounds = 50, # Set number of rounds to stop at if there is no improvement
+               
+              verbose = 1, # 1 - Prints out fit
+              nthread = 2, # Set number of parallel threads
+              print_every_n = 20, # Prints out result every 20th iteration
+              
+              objective = "binary:logistic", # Set objective
+              eval_metric = "aucpr"
+              ) # Set evaluation metric to use
+```
+```{r}
+boost_preds <- predict(bst_final_MaxAUCPR, dtrain) # Create predictions for xgboost model
+# Join predictions and actual
+pred_dat <- cbind.data.frame(boost_preds , train_db$OT)
+names(pred_dat) <- c("predictions", "response")
+oc<- optimal.cutpoints(X = "predictions",
+                       status = "response",
+                       tag.healthy = 0,
+                       data = pred_dat,
+                       methods = "MaxProdNPVPPV")
+
+boost_preds_MaxAUCPR <- predict(bst_final_MaxAUCPR, dtest) # Create predictions for xgboost model
+
+pred_dat <- cbind.data.frame(boost_preds_MaxAUCPR , test_db$OT)#
+# Convert predictions to classes, using optimal cut-off
+boost_pred_class_MaxAUCPR <- rep(0, length(boost_preds_MaxAUCPR))
+#boost_pred_class_MaxAUCPR[boost_preds_MaxAUCPR >= oc$MaxProdNPVPPV$Global$optimal.cutoff$cutoff[1]] <- 1
+
+boost_pred_class_MaxAUCPR[boost_preds_MaxAUCPR >= 0.42] <- 1
+
+t_MaxAUCPR <- table(boost_pred_class_MaxAUCPR, actual = test_db$OT) # Create table
+confusionMatrix(t_MaxAUCPR, positive = "1") # Produce confusion matrix
+```
+```{r}
+summary(boost_preds)
+```
+
+```{r}
+set.seed(42)
+bst_final_MaxAUCPR <- xgboost(data = dtrain, # Set training data
+              
+      
+              eta = 0.05, # Set learning rate
+              max.depth = 7, # Set max depth
+              min_child_weight = 1, # Set minimum number of samples in node to split
+              gamma = 0.10, # Set minimum loss reduction for split
+              subsample = 0.7, # Set proportion of training data to use in tree
+              colsample_bytree =  1.0 , # Set number of variables to use in each tree
+              
+              scale_pos_weight = 5,
+               
+              nrounds = 20, # Set number of rounds
+              #early_stopping_rounds = 50, # Set number of rounds to stop at if there is no improvement
+               
+              verbose = 1, # 1 - Prints out fit
+              nthread = 2, # Set number of parallel threads
+              print_every_n = 18, # Prints out result every 20th iteration
+              
+              objective = "binary:logistic", # Set objective
+              eval_metric = "aucpr"
+              ) # Set evaluation metric to use
+```
+
+```{r}
+boost_preds <- predict(bst_final_MaxAUCPR, dtrain) # Create predictions for xgboost model
+# Join predictions and actual
+pred_dat <- cbind.data.frame(boost_preds , train_db$OT)
+names(pred_dat) <- c("predictions", "response")
+oc<- optimal.cutpoints(X = "predictions",
+                       status = "response",
+                       tag.healthy = 0,
+                       data = pred_dat,
+                       methods = "MaxProdNPVPPV")
+
+boost_preds_MaxAUCPR <- predict(bst_final_MaxAUCPR, dtest) # Create predictions for xgboost model
+
+pred_dat <- cbind.data.frame(boost_preds_MaxAUCPR , test_db$OT)#
+# Convert predictions to classes, using optimal cut-off
+boost_pred_class_MaxAUCPR <- rep(0, length(boost_preds_MaxAUCPR))
+#boost_pred_class_MaxAUCPR[boost_preds_MaxAUCPR >= oc$MaxProdNPVPPV$Global$optimal.cutoff$cutoff[1]] <- 1
+
+boost_pred_class_MaxAUCPR[boost_preds_MaxAUCPR >= 0.63] <- 1
+
+t_MaxAUCPR <- table(boost_pred_class_MaxAUCPR, actual = test_db$OT) # Create table
+confusionMatrix(t_MaxAUCPR, positive = "1") # Produce confusion matrix
+```
+```{r}
+summary(boost_preds)
+```
+
+```{r}
+set.seed(42)
+bst_final_MaxAUCPR <- xgboost(data = dtrain, # Set training data
+              
+      
+              eta = 0.01, # Set learning rate
+              max.depth = 3, # Set max depth
+              min_child_weight = 10, # Set minimum number of samples in node to split
+              gamma = 0.05, # Set minimum loss reduction for split
+              subsample = 1.0, # Set proportion of training data to use in tree
+              colsample_bytree =  0.5 , # Set number of variables to use in each tree
+              
+              scale_pos_weight = 5,
+               
+              nrounds = 20, # Set number of rounds
+              #early_stopping_rounds = 50, # Set number of rounds to stop at if there is no improvement
+               
+              verbose = 1, # 1 - Prints out fit
+              nthread = 2, # Set number of parallel threads
+              print_every_n = 34, # Prints out result every 20th iteration
+              
+              objective = "binary:logistic", # Set objective
+              eval_metric = "aucpr"
+              ) # Set evaluation metric to use
+```
+```{r}
+boost_preds <- predict(bst_final_MaxAUCPR, dtrain) # Create predictions for xgboost model
+# Join predictions and actual
+pred_dat <- cbind.data.frame(boost_preds , train_db$OT)
+names(pred_dat) <- c("predictions", "response")
+oc<- optimal.cutpoints(X = "predictions",
+                       status = "response",
+                       tag.healthy = 0,
+                       data = pred_dat,
+                       methods = "MaxProdNPVPPV")
+
+boost_preds_MaxAUCPR <- predict(bst_final_MaxAUCPR, dtest) # Create predictions for xgboost model
+
+pred_dat <- cbind.data.frame(boost_preds_MaxAUCPR , test_db$OT)#
+# Convert predictions to classes, using optimal cut-off
+boost_pred_class_MaxAUCPR <- rep(0, length(boost_preds_MaxAUCPR))
+boost_pred_class_MaxAUCPR[boost_preds_MaxAUCPR >= oc$MaxProdNPVPPV$Global$optimal.cutoff$cutoff[1]] <- 1
+
+#boost_pred_class_MaxAUCPR[boost_preds_MaxAUCPR >= 0.63] <- 1
+
+t_MaxAUCPR <- table(boost_pred_class_MaxAUCPR, actual = test_db$OT) # Create table
+confusionMatrix(t_MaxAUCPR, positive = "1") # Produce confusion matrix
+```
+
+
+
+```{r}
+summary(boost_preds)
+```

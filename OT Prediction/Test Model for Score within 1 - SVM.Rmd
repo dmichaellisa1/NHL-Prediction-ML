@@ -1,0 +1,306 @@
+
+```{r}
+library(dplyr)
+```
+
+
+
+
+
+```{r}
+load("PredictionData-3.RData")
+```
+
+
+```{r}
+load("Goals_Data.RData")
+
+TeamInitlKey <- data.frame(Initl = c("BOS", "COL", "NSH", "LAK", "BUF", "WSH", "CHI", "SJS", "NYR", "PIT", "CAR", "WPG", "CBJ", "FLA", "ARI", "PHI", "ANA", "CGY", "NJD", "MIN", "DAL", "TOR", "MTL", "OTT", "DET", "TBL", "EDM", "VAN", "NYI", "SEA", "STL", "VGK", "UTA")
+                             , Name = c("Boston Bruins" , "Colorado Avalanche","Nashville Predators","Los Angeles Kings","Buffalo Sabres","Washington Capitals","Chicago Blackhawks","San Jose Sharks","New York Rangers" ,"Pittsburgh Penguins","Carolina Hurricanes","Winnipeg Jets","Columbus Blue Jackets", "Florida Panthers","Arizona Coyotes","Philadelphia Flyers","Anaheim Ducks","Calgary Flames","New Jersey Devils","Minnesota Wild", "Dallas Stars","Toronto Maple Leafs","Montréal Canadiens","Ottawa Senators","Detroit Red Wings","Tampa Bay Lightning","Edmonton Oilers","Vancouver Canucks","New York Islanders","Seattle Kraken","St. Louis Blues","Vegas Golden Knights", "Utah Hockey Club"))
+```
+
+
+```{r}
+load("C:/Users/dmich/Documents/Hockey Prediction/OT Prediction/Prediction App/XGBoost_Model_03.RData")
+
+DataToPredictWith_NoKeys <- PredictionData3 %>% select(-GameKey, -Season, -AwayTeam, -HomeTeam, -AwayGameNumber, -HomeGameNumber, -Date) %>% mutate(OT = 0) 
+
+dpredict <- xgb.DMatrix(data = as.matrix(DataToPredictWith_NoKeys %>% select(-OT)), label = DataToPredictWith_NoKeys$OT)
+
+boost_preds_ot <- predict(bst_final_3, dpredict)
+
+
+boost_pred_class_ot <- rep(0, length(boost_preds_ot))
+boost_pred_class_ot[boost_preds_ot >= 0.5888] <- 1
+
+PredictionData3 <- cbind(PredictionData3, boost_preds_ot, boost_pred_class_ot)
+```
+
+
+
+```{r}
+GoalsAwayTeam <- Goals_Data[grepl("@", Goals_Data$game),]
+GoalsHomeTeam <- Goals_Data[!grepl("@", Goals_Data$game),]
+
+
+GoalsHomeTeam <- GoalsHomeTeam %>% mutate( Date =  ymd(substr(game, 1, 10))) #extract date
+GoalsHomeTeam <-  GoalsHomeTeam %>% mutate( AwayInitl = str_sub(game, start = -3)) #extract away team intl
+GoalsHomeTeam <- left_join(GoalsHomeTeam, TeamInitlKey, by = c("AwayInitl" = "Initl")) #get away team name
+
+GoalsHomeTeam <- GoalsHomeTeam %>% rename("AwayTeam" = "Name", "HomeTeam" = "team")
+
+GoalsHomeTeam <- GoalsHomeTeam %>% mutate(GameKey = paste(AwayTeam, " @ ", HomeTeam, " ", Date))
+
+
+
+GoalsAwayTeam <- GoalsAwayTeam %>% mutate( Date =  ymd(substr(game, 1, 10))) #extract date
+GoalsAwayTeam <-  GoalsAwayTeam %>% mutate( HomeInitl = str_sub(game, start = -3)) #extract home team intl
+GoalsAwayTeam <- left_join(GoalsAwayTeam, TeamInitlKey, by = c("HomeInitl" = "Initl")) #get home team name
+
+GoalsAwayTeam <- GoalsAwayTeam %>% rename("HomeTeam" = "Name", "AwayTeam" = "team")
+
+GoalsAwayTeam <- GoalsAwayTeam %>% mutate(GameKey = paste(AwayTeam, " @ ", HomeTeam, " ", Date))
+
+colnames(GoalsHomeTeam) <- c(paste("Home ", colnames(GoalsHomeTeam)))
+names(GoalsHomeTeam)[names(GoalsHomeTeam) == 'Home  GameKey'] <- 'GameKey'
+
+colnames(GoalsAwayTeam) <- c(paste("Away ", colnames(GoalsAwayTeam)))
+names(GoalsAwayTeam)[names(GoalsAwayTeam) == 'Away  GameKey'] <- 'GameKey'
+
+
+
+Goals_Joined <- merge(GoalsHomeTeam, GoalsAwayTeam, by.x = "GameKey", by.y = "GameKey") 
+
+One_Goal_Game_df <- Goals_Joined %>% select(GameKey, `Home  gf`, `Away  gf`) %>% mutate(Home_gf = as.numeric(`Home  gf`), Away_gf = as.numeric(`Away  gf`)) %>% 
+  mutate(GoalDifference = abs(Home_gf - Away_gf)) %>% 
+  mutate(One_Goal_Game = if_else(GoalDifference %in% c(1, 0), 1, 0)) %>% 
+  select(GameKey, One_Goal_Game)
+
+
+
+One_Goal_Game_df <- One_Goal_Game_df %>% mutate(GameKey = str_squish(GameKey))  %>% mutate(GameKey = stri_trans_general(str = GameKey, id = "Latin-ASCII"))
+
+
+
+TotalDataWith_OneGoal_Game <- left_join(PredictionData3,  One_Goal_Game_df, join_by(GameKey == GameKey))
+
+```
+
+
+```{r}
+
+# Encoding the target feature as factor 
+TotalDataWith_OneGoal_Game$One_Goal_Game = factor(TotalDataWith_OneGoal_Game$One_Goal_Game, levels = c(0, 1)) 
+
+#first 5 columns are text data that is extrapolated elsewhere in the data set. Removed these so model can run
+GameData <- TotalDataWith_OneGoal_Game %>% 
+  select(-c(GameKey, Date, HomeTeam, AwayTeam, Season, OT, HomeGameNumber, AwayGameNumber)) 
+
+set.seed(42)
+
+train.index <- createDataPartition(GameData$One_Goal_Game, p = .8, list = FALSE)
+train_db <- GameData[ train.index,]
+test_db  <- GameData[-train.index,]
+```
+
+
+```{r}
+#install.packages('e1071') 
+library(e1071) 
+```
+
+
+```{r}
+classifier = svm(formula = One_Goal_Game ~ ., 
+                 data = train_db, 
+                 type = 'C-classification', 
+                 kernel = 'linear') 
+```
+
+```{r}
+y_pred <- predict(classifier, test_db)
+
+pred_dat <- cbind.data.frame(y_pred , test_db$One_Goal_Game)
+
+t <- table(y_pred, test_db$One_Goal_Game) # Create table
+confusionMatrix(t, positive = "1")
+```
+```{r}
+
+load("C:/Users/dmich/Documents/Hockey Prediction/OT Prediction/Scrape 2024-2025 Data/Clean2024_2025_Data_2.RData")
+load("C:/Users/dmich/Documents/Hockey Prediction/OT Prediction/Scrape 2024-2025 Data/Goals_Data.RData")
+
+DataToPredictWith_NoKeys <- Clean2024_2025_Data_2 %>% select(-GameKey, -Season, -AwayTeam, -HomeTeam, -AwayGameNumber, -HomeGameNumber, -Date) %>% mutate(OT = 0) 
+
+dpredict <- xgb.DMatrix(data = as.matrix(DataToPredictWith_NoKeys %>% select(-OT)), label = DataToPredictWith_NoKeys$OT)
+
+boost_preds_ot <- predict(bst_final_3, dpredict)
+
+
+boost_pred_class_ot <- rep(0, length(boost_preds_ot))
+boost_pred_class_ot[boost_preds_ot >= 0.5888] <- 1
+
+Clean2024_2025_Data_2 <- cbind(Clean2024_2025_Data_2, boost_preds_ot, boost_pred_class_ot)
+
+GoalsAwayTeam <- Goals_Data[grepl("@", Goals_Data$game),]
+GoalsHomeTeam <- Goals_Data[!grepl("@", Goals_Data$game),]
+
+
+GoalsHomeTeam <- GoalsHomeTeam %>% mutate( Date =  ymd(substr(game, 1, 10))) #extract date
+GoalsHomeTeam <-  GoalsHomeTeam %>% mutate( AwayInitl = str_sub(game, start = -3)) #extract away team intl
+GoalsHomeTeam <- left_join(GoalsHomeTeam, TeamInitlKey, by = c("AwayInitl" = "Initl")) #get away team name
+
+GoalsHomeTeam <- GoalsHomeTeam %>% rename("AwayTeam" = "Name", "HomeTeam" = "team")
+
+GoalsHomeTeam <- GoalsHomeTeam %>% mutate(GameKey = paste(AwayTeam, " @ ", HomeTeam, " ", Date))
+
+
+
+GoalsAwayTeam <- GoalsAwayTeam %>% mutate( Date =  ymd(substr(game, 1, 10))) #extract date
+GoalsAwayTeam <-  GoalsAwayTeam %>% mutate( HomeInitl = str_sub(game, start = -3)) #extract home team intl
+GoalsAwayTeam <- left_join(GoalsAwayTeam, TeamInitlKey, by = c("HomeInitl" = "Initl")) #get home team name
+
+GoalsAwayTeam <- GoalsAwayTeam %>% rename("HomeTeam" = "Name", "AwayTeam" = "team")
+
+GoalsAwayTeam <- GoalsAwayTeam %>% mutate(GameKey = paste(AwayTeam, " @ ", HomeTeam, " ", Date))
+
+colnames(GoalsHomeTeam) <- c(paste("Home ", colnames(GoalsHomeTeam)))
+names(GoalsHomeTeam)[names(GoalsHomeTeam) == 'Home  GameKey'] <- 'GameKey'
+
+colnames(GoalsAwayTeam) <- c(paste("Away ", colnames(GoalsAwayTeam)))
+names(GoalsAwayTeam)[names(GoalsAwayTeam) == 'Away  GameKey'] <- 'GameKey'
+
+
+
+Goals_Joined <- merge(GoalsHomeTeam, GoalsAwayTeam, by.x = "GameKey", by.y = "GameKey") 
+
+One_Goal_Game_df <- Goals_Joined %>% select(GameKey, `Home  gf`, `Away  gf`) %>% mutate(Home_gf = as.numeric(`Home  gf`), Away_gf = as.numeric(`Away  gf`)) %>% 
+  mutate(GoalDifference = abs(Home_gf - Away_gf)) %>% 
+  mutate(One_Goal_Game = if_else(GoalDifference %in% c(1, 0), 1, 0)) %>% 
+  select(GameKey, One_Goal_Game)
+
+One_Goal_Game_df <- One_Goal_Game_df %>% mutate(GameKey = str_squish(GameKey))  %>% mutate(GameKey = stri_trans_general(str = GameKey, id = "Latin-ASCII"))
+
+
+
+TotalDataWith_OneGoal_Game_predict <- left_join(Clean2024_2025_Data_2,  One_Goal_Game_df, join_by(GameKey == GameKey))
+
+
+# Encoding the target feature as factor 
+TotalDataWith_OneGoal_Game_predict$One_Goal_Game = factor(TotalDataWith_OneGoal_Game_predict$One_Goal_Game, levels = c(0, 1)) 
+
+#first 5 columns are text data that is extrapolated elsewhere in the data set. Removed these so model can run
+GameData_pred <- TotalDataWith_OneGoal_Game_predict %>% 
+  select(-c(GameKey, Date, HomeTeam, AwayTeam, Season, OT, HomeGameNumber, AwayGameNumber)) 
+
+
+
+
+```
+
+
+```{r}
+z_pred <- predict(classifier, GameData_pred)
+
+pred_dat <- cbind.data.frame(z_pred , GameData_pred$One_Goal_Game)
+
+t2 <- table(z_pred, GameData_pred$One_Goal_Game) # Create table
+confusionMatrix(t2, positive = "1")
+```
+
+
+
+```{r}
+classifier = svm(formula = One_Goal_Game ~ ., 
+                 data = train_db, 
+                 type = 'C-classification', 
+                 kernel = 'radial') 
+```
+
+
+```{r}
+y_pred <- predict(classifier, test_db)
+
+pred_dat <- cbind.data.frame(y_pred , test_db$One_Goal_Game)
+
+t <- table(y_pred, test_db$One_Goal_Game) # Create table
+confusionMatrix(t, positive = "1")
+```
+
+```{r}
+z_pred <- predict(classifier, GameData_pred)
+
+pred_dat <- cbind.data.frame(z_pred , GameData_pred$One_Goal_Game)
+
+t2 <- table(z_pred, GameData_pred$One_Goal_Game) # Create table
+confusionMatrix(t2, positive = "1")
+```
+
+
+```{r}
+#tune model
+tune_out <- 
+    tune.svm(x = train_db %>% select(-One_Goal_Game), y = train_db$One_Goal_Game, 
+             type = "C-classification", 
+             kernel = "radial",  cost = 10^(1:3), 
+             gamma = c(0.1, 1, 10))
+
+#list optimal values
+tune_out$best.parameters$cost
+tune_out$best.parameters$gamma
+#tune_out$best.parameters$coef0
+```
+```{r}
+classifier = svm(formula = One_Goal_Game ~ ., 
+                 data = train_db, 
+                 type = 'C-classification', 
+                 kernel = 'radial',
+                 cost = 10,
+                 gamma = 10) 
+```
+
+
+```{r}
+y_pred <- predict(classifier, test_db)
+
+pred_dat <- cbind.data.frame(y_pred , test_db$One_Goal_Game)
+
+t <- table(y_pred, test_db$One_Goal_Game) # Create table
+confusionMatrix(t, positive = "1")
+```
+
+```{r}
+tune_out$performances
+```
+
+
+https://optunity.readthedocs.io/en/latest/examples/r/svm.html#:~:text=In%20this%20example%2C%20we%20will,reached%20inside%20CV%20res$optimum
+
+```{r}
+library(optunity)
+library(e1071)
+
+## artificial data
+N <- 100
+x <- matrix(runif(N*5), N, 5)
+y <- x[,1] + 0.5*x[,2]^2 + 0.1*runif(N) + sin(x[,3]) > 1.0
+
+## SVM train and predict
+svm.rbf <- function(x, y, xtest, ytest, logCost, logGamma) {
+    m <- svm(x, y, kernel="radial", cost=exp(logCost), gamma=exp(logGamma),
+             type="C-classification", probability=TRUE)
+    yscore <- attr(predict(m, xtest, probability= T), "probabilities")[,"TRUE"]
+    return(yscore)
+}
+
+cv <- cv.setup(x, y, score=auc_pr, num_folds = 5, num_iter = 2)
+res <- cv.particle_swarm(cv, svm.rbf, logCost = c(-5, 5), logGamma = c(-5, 5), maximize = TRUE)
+
+## optimal value for logC:
+res$solution
+
+## auc_pr reached inside CV
+res$optimum
+```
+
+

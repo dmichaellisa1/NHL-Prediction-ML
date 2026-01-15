@@ -1,0 +1,368 @@
+```{r}
+
+library(dplyr)
+library(xgboost)
+library(OptimalCutpoints)
+library(caret)
+library(SHAPforxgboost)
+#source("a_insights_shap_functions.r")
+library(ggplot2)
+library(parallel)
+#library(xgboostExplainer)
+
+library(foreach)
+library(doParallel)
+
+```
+
+```{r}
+load("PredictionData-4.RData")
+```
+
+ABS and LN + 1
+```{r}
+PredictionData4_ABS_LN <- PredictionData4 %>% mutate(
+  PPG_Diff_ABS_LN = log(abs(PPG_Diff) + 1)
+  ,Expected_Goals_Diff_ABS_LN = log(abs(Expected_Goals_Diff) + 1)
+  ,USAT_weighted_Diff_ABS_LN = log(abs(USAT_weighted_Diff) + 1)
+  ,FOP_weighted_Diff_ABS_LN = log(abs(FOP_weighted_Diff) + 1)
+  ,SpecialTeamsValue_ABS_LN = log(abs(SpecialTeamsValue) + 1)
+  ,OTperGame_LN = log(OTperGame + 1)
+  ,ContractDifference_ABS_LN = log(abs(ContractDifference) + 1)
+  #,Home_PointsFromPlayoffs_LN = log(Home_PointsFromPlayoffs + 1)
+  #,Away_PointsFromPlayoffs_LN = log(Away_PointsFromPlayoffs + 1)
+  ,Home_GamesinLast7Days_LN = log(Home_GamesinLast7Days + 1)
+  ,Away_GamesinLast7Days_LN = log(Away_GamesinLast7Days + 1)
+  ,GamesinLast7Days_Diff_ABS_LN = log(abs(GamesinLast7Days_Diff) + 1)
+  ,Home_Blocked_Percent_prior_LN = log(Home_Blocked_Percent_prior + 1)
+  ,Away_Blocked_Percent_prior_LN = log(Away_Blocked_Percent_prior + 1)
+  #,Home_Hits_Diff_Avg_prior_LN = log(Home_Hits_Diff_Avg_prior + 1)
+  #,Away_Hits_Diff_Avg_prior_LN = log(Away_Hits_Diff_Avg_prior + 1)
+  ,Avg_Hits_Diff_ABS_LN = log(abs(Avg_Hits_Diff) + 1)
+  ,StreakValue_Diff_ABS_LN = log(abs(StreakValue_Diff) + 1)
+  ,Matchup_OTs_prior_LN = log(Matchup_OTs_prior + 1)
+) %>% 
+  select(-c(PPG_Diff, Expected_Goals_Diff, USAT_weighted_Diff, FOP_weighted_Diff, SpecialTeamsValue, OTperGame, ContractDifference, #Home_PointsFromPlayoffs
+            #, Away_PointsFromPlayoffs
+            , Home_GamesinLast7Days, Away_GamesinLast7Days, GamesinLast7Days_Diff, Home_Blocked_Percent_prior, Away_Blocked_Percent_prior
+            #, Home_Hits_Diff_Avg_prior
+            #, Away_Hits_Diff_Avg_prior
+            , Avg_Hits_Diff
+            , StreakValue_Diff, Matchup_OTs_prior))
+```
+
+```{r}
+#Create weighted 80/20 split
+set.seed(42)
+train.index <- createDataPartition(PredictionData4_ABS_LN$OT, p = .8, list = FALSE)
+train_db <- PredictionData4_ABS_LN[ train.index,]
+test_db  <- PredictionData4_ABS_LN[-train.index,]
+
+summary(as.factor(train_db$OT))
+summary(as.factor(test_db$OT))
+```
+
+
+```{r}
+train_db <- train_db %>% select(-GameKey, -Season, -AwayTeam, -HomeTeam, -AwayGameNumber, -HomeGameNumber, -Date) 
+
+test_db <- test_db %>% select(-GameKey, -Season, -AwayTeam, -HomeTeam, -AwayGameNumber, -HomeGameNumber, -Date) 
+```
+
+#### Preparing for XGBoost
+```{r}
+dtrain <- xgb.DMatrix(data = as.matrix(train_db %>% select(-OT)), label = train_db$OT)
+dtest <- xgb.DMatrix(data = as.matrix(test_db %>% select(-OT)), label = test_db$OT)
+```
+
+
+
+#Parameter Tuning grid search
+
+```{r}
+tuning_grid <- expand.grid(
+    eta = c(0.1, 0.05, 0.3)
+  , scale_pos_weight = c(1, 5, 7, 10)
+  #, nrounds = seq(100, 1000, by = 50)
+  , max_depth_vals = c(5, 7, 20)
+  , min_child_weight = c(1, 10, 20)
+  , gamma_vals = c(0, 0.05, 0.1, 0.2)
+  , subsample = c(0.5, 0.75, 1)
+  , colsample_by_tree = c(0.5, 0.75, 1)
+  
+)
+```
+
+
+
+
+```{r}
+load("C:/Users/dmich/Documents/Hockey Prediction/OT Prediction/Scrape 2024-2025 Data/Clean2024_2025_Data_3.RData")
+Predict_Data <- Clean2024_2025_Data_3 %>% mutate(
+  PPG_Diff_ABS_LN = log(abs(PPG_Diff) + 1)
+  ,Expected_Goals_Diff_ABS_LN = log(abs(Expected_Goals_Diff) + 1)
+  ,USAT_weighted_Diff_ABS_LN = log(abs(USAT_weighted_Diff) + 1)
+  ,FOP_weighted_Diff_ABS_LN = log(abs(FOP_weighted_Diff) + 1)
+  ,SpecialTeamsValue_ABS_LN = log(abs(SpecialTeamsValue) + 1)
+  ,OTperGame_LN = log(OTperGame + 1)
+  ,ContractDifference_ABS_LN = log(abs(ContractDifference) + 1)
+  #,Home_PointsFromPlayoffs_LN = log(Home_PointsFromPlayoffs + 1)
+  #,Away_PointsFromPlayoffs_LN = log(Away_PointsFromPlayoffs + 1)
+  ,Home_GamesinLast7Days_LN = log(Home_GamesinLast7Days + 1)
+  ,Away_GamesinLast7Days_LN = log(Away_GamesinLast7Days + 1)
+  ,GamesinLast7Days_Diff_ABS_LN = log(abs(GamesinLast7Days_Diff) + 1)
+  ,Home_Blocked_Percent_prior_LN = log(Home_Blocked_Percent_prior + 1)
+  ,Away_Blocked_Percent_prior_LN = log(Away_Blocked_Percent_prior + 1)
+  #,Home_Hits_Diff_Avg_prior_LN = log(Home_Hits_Diff_Avg_prior + 1)
+  #,Away_Hits_Diff_Avg_prior_LN = log(Away_Hits_Diff_Avg_prior + 1)
+  ,Avg_Hits_Diff_ABS_LN = log(abs(Avg_Hits_Diff) + 1)
+  ,StreakValue_Diff_ABS_LN = log(abs(StreakValue_Diff) + 1)
+  ,Matchup_OTs_prior_LN = log(Matchup_OTs_prior + 1)
+) %>% 
+  select(-c(PPG_Diff, Expected_Goals_Diff, USAT_weighted_Diff, FOP_weighted_Diff, SpecialTeamsValue, OTperGame, ContractDifference, #Home_PointsFromPlayoffs
+            #, Away_PointsFromPlayoffs
+            , Home_GamesinLast7Days, Away_GamesinLast7Days, GamesinLast7Days_Diff, Home_Blocked_Percent_prior, Away_Blocked_Percent_prior
+            #, Home_Hits_Diff_Avg_prior
+            #, Away_Hits_Diff_Avg_prior
+            , Avg_Hits_Diff
+            , StreakValue_Diff, Matchup_OTs_prior))
+```
+
+
+```{r}
+predict_db <- Predict_Data %>% select(-GameKey, -Season, -AwayTeam, -HomeTeam, -AwayGameNumber, -HomeGameNumber, -Date) 
+
+dpredict <- xgb.DMatrix(data = as.matrix(predict_db %>% select(-OT)), label = predict_db$OT)
+
+```
+
+
+
+Using foreach
+```{r}
+
+
+start.time <- Sys.time()
+
+cl <- makeCluster(12) #number of cores
+
+registerDoParallel(cl)
+
+ParametersResults <- foreach(i = 1:nrow(tuning_grid), .combine = "rbind", .packages = c("xgboost", "dplyr", "caret")) %dopar%  {
+  
+  dtrain <- xgb.DMatrix(data = as.matrix(train_db %>% select(-OT)), label = train_db$OT)
+  
+  dtest <- xgb.DMatrix(data = as.matrix(test_db %>% select(-OT)), label = test_db$OT)
+  
+  set.seed(42)
+bst_mod <- xgb.cv(data = dtrain, # Set training data
+              
+              nfold = 5, # Use 5 fold cross-validation
+               
+              eta = tuning_grid[i,]$eta, # Set learning rate
+              max.depth = tuning_grid[i,]$max_depth_vals, # Set max depth
+              min_child_weight = tuning_grid[i,]$min_child_weight, # Set minimum number of samples in node to split
+              gamma = tuning_grid[i,]$gamma_vals, # Set minimum loss reduction for split
+              subsample = tuning_grid[i,]$subsample, # Set proportion of training data to use in tree
+              colsample_bytree =  tuning_grid[i,]$colsample_by_tree, # Set number of variables to use in each tree
+              
+              scale_pos_weight = tuning_grid[i,]$scale_pos_weight,
+               
+              nrounds = 1500, # Set number of rounds
+              #early_stopping_rounds = 200, # Set number of rounds to stop at if there is no improvement
+               
+              verbose = 0, # 1 - Prints out fit
+              nthread = 1, # Set number of parallel threads
+             # print_every_n = 100, # Prints out result every 20th iteration
+              
+              objective = "binary:logistic", # Set objective
+              eval_metric = "aucpr"
+              #,eval_metric = "error" # Set evaluation metric to use
+)
+  
+  
+
+aucpr_max <- max(bst_mod$evaluation_log$test_aucpr_mean)
+
+round_aucpr_max <- match(aucpr_max, bst_mod$evaluation_log$test_aucpr_mean)
+
+#error_of_max_auc <- bst_mod$evaluation_log$test_error_mean[round_aucpr_max]
+
+#error_min <- min(bst_mod$evaluation_log$test_error_mean)
+
+#round_error_min <- match(error_min, bst_mod$evaluation_log$test_error_mean)
+
+#auc_of_min_error <- bst_mod$evaluation_log$test_auc_mean[round_error_min]
+
+
+bestround <- data.frame(tuning_grid[i,], aucpr_max, round_aucpr_max)#, error_of_max_auc, error_min, round_error_min, auc_of_min_error)
+
+
+#predict with best round
+
+
+
+
+ set.seed(42)
+  bst_final <- xgboost(data = dtrain, # Set training data
+              
+     
+              eta = bestround$eta[1] , # Set learning rate
+              max.depth = bestround$max_depth_vals[1], # Set max depth
+              min_child_weight = bestround$min_child_weight[1], # Set minimum number of samples in node to split
+              gamma = bestround$gamma_vals[1], # Set minimum loss reduction for split
+              subsample = bestround$subsample[1], # Set proportion of training data to use in tree
+              colsample_bytree =  bestround$colsample_by_tree[1], # Set number of variables to use in each tree
+              
+              scale_pos_weight = bestround$scale_pos_weight[1],
+               
+              nrounds = bestround$round_aucpr_max[1], # Set number of rounds
+              #early_stopping_rounds = 50, # Set number of rounds to stop at if there is no improvement
+               
+              verbose = 0, # 1 - Prints out fit
+              nthread = 1, # Set number of parallel threads
+              #print_every_n = 20, # Prints out result every 20th iteration
+              
+              objective = "binary:logistic", # Set objective
+              eval_metric = "aucpr"
+              ) # Set evaluation metric to use
+  
+  
+ boost_preds <- predict(bst_final, dtest) # Create predictions for xgboost model
+
+  pred_dat <- cbind.data.frame(boost_preds , test_db$OT)#
+  # Convert predictions to classes, using optimal cut-off
+  boost_pred_class<- rep(0, length(boost_preds))
+  #boost_pred_class_3[boost_preds_3 >= oc$MaxProdNPVPPV$Global$optimal.cutoff$cutoff[1]] <- 1
+
+  Q3_cuttoff <- summary(boost_preds)[[5]] #Calling Q3 cuttoff the ones to make positive
+  
+  boost_pred_class[boost_preds >= Q3_cuttoff] <- 1
+
+  t <- table(boost_pred_class, actual = test_db$OT) # Create table
+  PosPredValue <- confusionMatrix(t, positive = "1")$byClass[["Pos Pred Value"]] 
+  
+  
+  
+  
+   #pred with 2024-2025 data
+  dpredict <- xgb.DMatrix(data = as.matrix(predict_db %>% select(-OT)), label = predict_db$OT)
+
+  cutoffvalue <- Q3_cuttoff
+  
+  
+  boost_preds_2425 <- predict(bst_final, dpredict) # Create predictions for xgboost model
+# Join predictions and actual
+  pred_dat_2425 <- cbind.data.frame(boost_preds_2425 , predict_db$OT)
+  names(pred_dat_2425) <- c("predictions", "response")
+
+
+  boost_pred_class_2425 <- rep(0, length(boost_preds_2425))
+
+  boost_pred_class_2425[boost_preds_2425 >= cutoffvalue] <- 1
+  
+  t2425 <- table(boost_pred_class_2425, actual = predict_db$OT) # Create table
+  PosPredValue_2425 <- confusionMatrix(t2425, positive = "1")$byClass[["Pos Pred Value"]]
+  
+  
+  
+  
+  
+  data.frame(bestround, Q3_cuttoff, PosPredValue, PosPredValue_2425)
+
+
+
+
+
+
+}
+
+
+stopCluster(cl)
+
+
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+
+save(ParametersResults, file = "ParametersResults-ABSLN.RData")
+```
+
+
+```{r}
+time.taken
+```
+
+
+```{r}
+load("ParametersResults-ABSLN.RData")
+```
+
+
+
+
+```{r}
+ set.seed(42)
+  bst_final <- xgboost(data = dtrain, # Set training data
+              
+     
+              eta = 0.3 , # Set learning rate
+              max.depth = 7, # Set max depth
+              min_child_weight = 1, # Set minimum number of samples in node to split
+              gamma = 0.1, # Set minimum loss reduction for split
+              subsample = 0.75, # Set proportion of training data to use in tree
+              colsample_bytree =  1.0, # Set number of variables to use in each tree
+              
+              scale_pos_weight = 5,
+               
+              nrounds = 3, # Set number of rounds
+              #early_stopping_rounds = 50, # Set number of rounds to stop at if there is no improvement
+               
+              verbose = 0, # 1 - Prints out fit
+              nthread = 2, # Set number of parallel threads
+              #print_every_n = 20, # Prints out result every 20th iteration
+              
+              objective = "binary:logistic", # Set objective
+              eval_metric = "aucpr"
+              ) # Set evaluation metric to use
+  
+  
+```
+  
+  
+```{r}
+ boost_preds <- predict(bst_final, dtest) # Create predictions for xgboost model
+
+  pred_dat <- cbind.data.frame(boost_preds , test_db$OT)#
+  # Convert predictions to classes, using optimal cut-off
+  boost_pred_class<- rep(0, length(boost_preds))
+  #boost_pred_class_3[boost_preds_3 >= oc$MaxProdNPVPPV$Global$optimal.cutoff$cutoff[1]] <- 1
+
+  Q3_cuttoff <- summary(boost_preds)[[5]] #Calling Q3 cuttoff the ones to make positive
+  
+  #boost_pred_class[boost_preds >= Q3_cuttoff] <- 1
+  
+  boost_pred_class[boost_preds >= .64] <- 1
+
+  t <- table(boost_pred_class, actual = test_db$OT) # Create table
+  confusionMatrix(t, positive = "1")
+```
+
+```{r}
+summary(boost_preds)
+```
+```{r}
+boost_preds_2425 <- predict(bst_final, dpredict) # Create predictions for xgboost model
+# Join predictions and actual
+  pred_dat_2425 <- cbind.data.frame(boost_preds_2425 , predict_db$OT)
+  names(pred_dat_2425) <- c("predictions", "response")
+
+
+  boost_pred_class_2425 <- rep(0, length(boost_preds_2425))
+
+  #boost_pred_class_2425[boost_preds_2425 >= Q3_cuttoff] <- 1
+  boost_pred_class_2425[boost_preds_2425 >= .59] <- 1
+  
+  t2425 <- table(boost_pred_class_2425, actual = predict_db$OT) # Create table
+  confusionMatrix(t2425, positive = "1")
+```
+

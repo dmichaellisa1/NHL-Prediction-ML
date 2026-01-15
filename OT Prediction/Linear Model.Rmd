@@ -1,0 +1,73 @@
+
+```{r}
+
+```
+
+```{r}
+load("PredictionData.RData")
+```
+
+```{r}
+#Log was done without accounting for 0, redoing
+PredictionData <- PredictionData %>% mutate(PPG_Diff_ABS_log = log(PPG_Diff_ABS + 1)
+         ,Expected_Goals_Diff_ABS_log = log(Expected_Goals_Diff_ABS + 1)
+         ,USAT_weighted_Diff_ABS_log = log(USAT_weighted_Diff_ABS + 1)
+         ,FOP_weighted_Diff_ABS_log = log(FOP_weighted_Diff_ABS + 1)
+         ,SpecialTeamsValue_log = log(SpecialTeamsValue + 1)
+         ,ContractDifference_ABS_log = log(ContractDifference_ABS + 1)) 
+```
+
+
+```{r}
+#Create weighted 80/20 split
+set.seed(42)
+train.index <- createDataPartition(PredictionData$OT, p = .8, list = FALSE)
+train_db <- PredictionData[ train.index,]
+test_db  <- PredictionData[-train.index,]
+
+summary(as.factor(train_db$OT))
+summary(as.factor(test_db$OT))
+```
+```{r}
+model <- lm(data = train_db, formula = OT ~ PPG_Diff_ABS_log + Expected_Goals_Diff_ABS_log + USAT_weighted_Diff_ABS_log + FOP_weighted_Diff_ABS_log + SpecialTeamsValue_log + ContractDifference_ABS_log + OTperGame)
+
+summary(model)
+```
+
+```{r}
+PredictedValues <- predict(model, test_db)
+
+test_db$prediction <- PredictedValues
+```
+
+
+Try log regression
+```{r}
+model_log <- glm(data = train_db, formula = OT ~ PPG_Diff_ABS_log + Expected_Goals_Diff_ABS_log + USAT_weighted_Diff_ABS_log + FOP_weighted_Diff_ABS_log + SpecialTeamsValue_log + ContractDifference_ABS_log + OTperGame, family = binomial())
+
+summary(model_log)
+```
+
+```{r}
+PredictedValues <- predict(model_log, test_db, type = "response")
+
+test_db$prediction_log <- PredictedValues
+```
+
+Nothing gets a prob to get a predicted OT. 
+
+
+for fun, lets try non-log
+```{r}
+
+model_log2 <- glm(data = train_db, formula = OT ~ PPG_Diff_ABS + Expected_Goals_Diff_ABS + USAT_weighted_Diff_ABS + FOP_weighted_Diff_ABS + SpecialTeamsValue + ContractDifference_ABS + OTperGame, family = binomial())
+
+summary(model_log2)
+```
+
+```{r}
+PredictedValues <- predict(model_log2, test_db, type = "response")
+
+test_db$prediction_log2 <- PredictedValues
+```
+

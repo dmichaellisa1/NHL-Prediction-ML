@@ -1,0 +1,150 @@
+
+```{r}
+load("C:/Users/dmich/Documents/Hockey Prediction/OT Prediction/Scrape 2024-2025 Data/Clean2024_2025_Data_2.RData")
+load("C:/Users/dmich/Documents/Hockey Prediction/OT Prediction/XGBoost_Model_03.RData")
+```
+
+
+```{r}
+load("C:/Users/dmich/Documents/Hockey Prediction/OT Prediction/Scrape 2024-2025 Data/Goals_Data.RData")
+
+TeamInitlKey <- data.frame(Initl = c("BOS", "COL", "NSH", "LAK", "BUF", "WSH", "CHI", "SJS", "NYR", "PIT", "CAR", "WPG", "CBJ", "FLA", "ARI", "PHI", "ANA", "CGY", "NJD", "MIN", "DAL", "TOR", "MTL", "OTT", "DET", "TBL", "EDM", "VAN", "NYI", "SEA", "STL", "VGK", "UTA")
+                             , Name = c("Boston Bruins" , "Colorado Avalanche","Nashville Predators","Los Angeles Kings","Buffalo Sabres","Washington Capitals","Chicago Blackhawks","San Jose Sharks","New York Rangers" ,"Pittsburgh Penguins","Carolina Hurricanes","Winnipeg Jets","Columbus Blue Jackets", "Florida Panthers","Arizona Coyotes","Philadelphia Flyers","Anaheim Ducks","Calgary Flames","New Jersey Devils","Minnesota Wild", "Dallas Stars","Toronto Maple Leafs","Montréal Canadiens","Ottawa Senators","Detroit Red Wings","Tampa Bay Lightning","Edmonton Oilers","Vancouver Canucks","New York Islanders","Seattle Kraken","St. Louis Blues","Vegas Golden Knights", "Utah Hockey Club"))
+```
+
+```{r}
+GoalsAwayTeam <- Goals_Data[grepl("@", Goals_Data$game),]
+GoalsHomeTeam <- Goals_Data[!grepl("@", Goals_Data$game),]
+
+
+GoalsHomeTeam <- GoalsHomeTeam %>% mutate( Date =  ymd(substr(game, 1, 10))) #extract date
+GoalsHomeTeam <-  GoalsHomeTeam %>% mutate( AwayInitl = str_sub(game, start = -3)) #extract away team intl
+GoalsHomeTeam <- left_join(GoalsHomeTeam, TeamInitlKey, by = c("AwayInitl" = "Initl")) #get away team name
+
+GoalsHomeTeam <- GoalsHomeTeam %>% rename("AwayTeam" = "Name", "HomeTeam" = "team")
+
+GoalsHomeTeam <- GoalsHomeTeam %>% mutate(GameKey = paste(AwayTeam, " @ ", HomeTeam, " ", Date))
+
+
+
+GoalsAwayTeam <- GoalsAwayTeam %>% mutate( Date =  ymd(substr(game, 1, 10))) #extract date
+GoalsAwayTeam <-  GoalsAwayTeam %>% mutate( HomeInitl = str_sub(game, start = -3)) #extract home team intl
+GoalsAwayTeam <- left_join(GoalsAwayTeam, TeamInitlKey, by = c("HomeInitl" = "Initl")) #get home team name
+
+GoalsAwayTeam <- GoalsAwayTeam %>% rename("HomeTeam" = "Name", "AwayTeam" = "team")
+
+GoalsAwayTeam <- GoalsAwayTeam %>% mutate(GameKey = paste(AwayTeam, " @ ", HomeTeam, " ", Date))
+
+colnames(GoalsHomeTeam) <- c(paste("Home ", colnames(GoalsHomeTeam)))
+names(GoalsHomeTeam)[names(GoalsHomeTeam) == 'Home  GameKey'] <- 'GameKey'
+
+colnames(GoalsAwayTeam) <- c(paste("Away ", colnames(GoalsAwayTeam)))
+names(GoalsAwayTeam)[names(GoalsAwayTeam) == 'Away  GameKey'] <- 'GameKey'
+
+
+
+Goals_Joined <- merge(GoalsHomeTeam, GoalsAwayTeam, by.x = "GameKey", by.y = "GameKey") 
+
+One_Goal_Game_df <- Goals_Joined %>% select(GameKey, `Home  gf`, `Away  gf`) %>% mutate(Home_gf = as.numeric(`Home  gf`), Away_gf = as.numeric(`Away  gf`)) %>% 
+  mutate(GoalDifference = abs(Home_gf - Away_gf)) %>% 
+  mutate(One_Goal_Game = if_else(GoalDifference == 1, 1, 0)) %>% 
+  select(GameKey, One_Goal_Game)
+```
+
+
+
+```{r}
+sum(One_Goal_Game_df$One_Goal_Game) / nrow(One_Goal_Game_df)
+```
+```{r}
+One_Goal_Game_df <- One_Goal_Game_df %>% mutate(GameKey = str_squish(GameKey))  %>% mutate(GameKey = stri_trans_general(str = GameKey, id = "Latin-ASCII"))
+
+
+
+TotalDataWith_OneGoal_Game <- left_join(Clean2024_2025_Data_2,  One_Goal_Game_df, join_by(GameKey == GameKey))
+```
+
+
+
+```{r}
+
+Predict_Data <- TotalDataWith_OneGoal_Game %>% select(-GameKey, -Season, -AwayTeam, -HomeTeam, -AwayGameNumber, -HomeGameNumber, -Date) 
+
+dpredict <- xgb.DMatrix(data = as.matrix(Predict_Data %>% select(-OT, -One_Goal_Game)), label = Predict_Data$OT)
+
+```
+
+
+
+OT
+```{r}
+boost_preds <- predict(bst_final_3, dpredict) # Create predictions for xgboost model
+# Join predictions and actual
+pred_dat <- cbind.data.frame(boost_preds , Predict_Data$OT)
+names(pred_dat) <- c("predictions", "response")
+
+#oc<- optimal.cutpoints(X = "predictions",
+#                       status = "response",
+#                       tag.healthy = 0,
+#                       data = pred_dat,
+#                       methods = "MaxEfficiency")
+
+#boost_preds_MaxAUC <- predict(bst_final_MaxAUC, dtest) # Create predictions for xgboost model
+
+#pred_dat <- cbind.data.frame(boost_preds_MaxAUC , test_db$OT)#
+# Convert predictions to classes, using optimal cut-off
+boost_pred_class <- rep(0, length(boost_preds))
+boost_pred_class[boost_preds >= .5888] <- 1
+#0.5400651
+#boost_pred_class[boost_preds >= .425] <- 1
+
+
+t <- table(boost_pred_class, actual = Predict_Data$OT) # Create table
+confusionMatrix(t, positive = "1") # Produce confusion matrix
+```
+
+
+
+One Goal Game
+```{r}
+boost_preds <- predict(bst_final_3, dpredict) # Create predictions for xgboost model
+# Join predictions and actual
+pred_dat <- cbind.data.frame(boost_preds , Predict_Data$One_Goal_Game)
+names(pred_dat) <- c("predictions", "response")
+
+#oc<- optimal.cutpoints(X = "predictions",
+#                       status = "response",
+#                       tag.healthy = 0,
+#                       data = pred_dat,
+#                       methods = "MaxEfficiency")
+
+#boost_preds_MaxAUC <- predict(bst_final_MaxAUC, dtest) # Create predictions for xgboost model
+
+#pred_dat <- cbind.data.frame(boost_preds_MaxAUC , test_db$OT)#
+# Convert predictions to classes, using optimal cut-off
+boost_pred_class <- rep(0, length(boost_preds))
+boost_pred_class[boost_preds >= .5888] <- 1
+#0.5400651
+#boost_pred_class[boost_preds >= .425] <- 1
+
+
+t <- table(boost_pred_class, actual = Predict_Data$One_Goal_Game) # Create table
+confusionMatrix(t, positive = "1") # Produce confusion matrix
+```
+
+```{r}
+sum(TotalDataWith_OneGoal_Game$One_Goal_Game) / nrow(TotalDataWith_OneGoal_Game)
+```
+```{r}
+nrow(TotalDataWith_OneGoal_Game %>% filter(One_Goal_Game == 1 & OT == 0))
+
+nrow(TotalDataWith_OneGoal_Game %>% filter(One_Goal_Game == 1 & OT == 0)) / nrow(TotalDataWith_OneGoal_Game)
+```
+
+
+```{r}
+sum(TotalDataWith_OneGoal_Game$OT) / nrow(TotalDataWith_OneGoal_Game)
+```
+
+Pure random guessing adds 
+

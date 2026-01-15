@@ -1,0 +1,92 @@
+
+```{r}
+
+library(dplyr)
+library(xgboost)
+library(OptimalCutpoints)
+library(caret)
+library(SHAPforxgboost)
+#source("a_insights_shap_functions.r")
+library(ggplot2)
+library(parallel)
+#library(xgboostExplainer)
+
+library(foreach)
+library(doParallel)
+
+library(neuralnet)
+
+```
+
+
+```{r}
+load("PredictionData-3.RData")
+```
+
+
+
+```{r}
+#Create weighted 80/20 split
+set.seed(42)
+train.index <- createDataPartition(PredictionData3$OT, p = .8, list = FALSE)
+train_db <- PredictionData3[ train.index,]
+test_db  <- PredictionData3[-train.index,]
+
+#summary(as.factor(train_db$OT))
+#summary(as.factor(test_db$OT))
+```
+
+
+```{r}
+train_db <- train_db %>% select(-GameKey, -Season, -AwayTeam, -HomeTeam, -AwayGameNumber, -HomeGameNumber, -Date) 
+
+test_db <- test_db %>% select(-GameKey, -Season, -AwayTeam, -HomeTeam, -AwayGameNumber, -HomeGameNumber, -Date) 
+```
+
+
+```{r}
+colnames(train_db)
+```
+
+
+```{r}
+model = neuralnet(
+    OT~PPG_Diff_ABS + Expected_Goals_Diff + USAT_weighted_Diff + FOP_weighted_Diff + SpecialTeamsValue + OTperGame + ContractDifference + DivisionMatchup + ConferenceMatchup + Home_PointsFromPlayoffs + Away_PointsFromPlayoffs + Home_GamesinLast7Days + Away_GamesinLast7Days + GamesinLast7Days_Diff + Home_Blocked_Percent_prior + Away_Blocked_Percent_prior + Home_Hits_Diff_Avg_prior + Away_Hits_Diff_Avg_prior + Avg_Hits_Diff + StreakValue_Diff +  Matchup_OTs_prior + Avg_GameNumber +  SVM_Home + boost_preds_Home,
+data=train_db,
+hidden=c(24, 20, 10),
+linear.output = FALSE
+)
+```
+
+
+
+```{r}
+plot(model,rep = "best")
+```
+
+
+
+```{r}
+preds_1 <- predict(model, test_db)
+
+max(preds_1) 
+min(preds_1)
+```
+
+
+```{r}
+pred_dat <- cbind.data.frame(preds_1 , test_db$OT)#
+# Convert predictions to classes, using optimal cut-off
+boost_pred_class <- rep(0, length(preds_1))
+boost_pred_class[preds_1 >= 0.23] <- 1
+
+
+t <- table(boost_pred_class, actual = test_db$OT) # Create table
+confusionMatrix(t, positive = "1") # Produce confusion matrix
+```
+
+
+
+
+
+

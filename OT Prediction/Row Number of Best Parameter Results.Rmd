@@ -1,0 +1,35 @@
+
+```{r}
+library(dplyr)
+library(xgboost)
+library(OptimalCutpoints)
+library(caret)
+library(SHAPforxgboost)
+#source("a_insights_shap_functions.r")
+library(ggplot2)
+library(parallel)
+#library(xgboostExplainer)
+
+library(foreach)
+library(doParallel)
+```
+
+```{r}
+load("C:/Users/dmich/Documents/Hockey Prediction/OT Prediction/ParametersResults2.RData")
+```
+
+```{r}
+ParametersResults_order <- ParametersResults %>% arrange(desc(aucpr_max))
+```
+
+```{r}
+which(ParametersResults_order$eta ==  0.05 & 
+        ParametersResults_order$max_depth_vals ==  7 & 
+        ParametersResults_order$min_child_weight == 1 & 
+        ParametersResults_order$gamma_vals == 0.1 &
+        ParametersResults_order$subsample == 0.5 &
+        ParametersResults_order$colsample_by_tree == 1 &
+        ParametersResults_order$scale_pos_weight == 5 
+        )
+```
+

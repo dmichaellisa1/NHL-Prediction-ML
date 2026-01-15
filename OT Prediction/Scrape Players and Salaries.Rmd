@@ -1,0 +1,1116 @@
+
+
+```{r}
+library(rvest)
+library(dplyr)
+library(stringr)
+```
+
+
+```{r}
+GameDataJoined_Cleaned %>% group_by(Season) %>% summarise(Games = n())
+```
+
+
+
+```{r}
+
+
+url = paste("https://www.nhl.com/scores/htmlreports/20242025/RO020267.HTM")
+
+GameRead <- read_html(url)
+
+Game_Date <- GameRead %>% 
+  html_elements("#GameInfo tr:nth-child(4) td") %>% 
+  html_text()
+
+Team_Away <- GameRead %>% 
+  html_elements(".\\+.border:nth-child(1)") %>% 
+  html_text()
+
+Team_Home <- GameRead %>% 
+  html_elements(".border+ .\\+.border") %>% 
+  html_text()
+
+Players_Away <- GameRead %>% 
+  html_elements(".tablewidth .tablewidth tr:nth-child(1) .border:nth-child(1) tr+ tr td~ td+ td") %>% 
+  html_text()
+
+Players_Home <- GameRead %>% 
+  html_elements(".tablewidth .tablewidth tr:nth-child(1) .border+ .border tr+ tr td~ td+ td") %>% 
+  html_text()
+```
+
+```{r}
+player_df_away <- data.frame(Game_Date, Team_Away, Team_Home, Team_Member = "Away",  Player = Players_Away)
+
+player_df_home <- data.frame(Game_Date, Team_Away, Team_Home, Team_Member = "Home",  Player = Players_Home)
+
+Player_df <- rbind(player_df_away, player_df_home)
+```
+
+```{r}
+#remove (C) (A)
+Player_df$Player <-gsub("\\s*\\([^\\)]+\\)","",as.character(Player_df$Player))
+```
+
+
+```{r}
+
+
+Players_Total_20142015 <- data.frame()
+
+for (i in 1:1230) {
+  
+  gamenumber <- formatC(i, width = 4, format = "d", flag = "0")
+  
+  url <- paste("https://www.nhl.com/scores/htmlreports/20142015/RO02", gamenumber, ".HTM", sep = "")
+  
+  GameRead <- read_html(url)
+
+Game_Date <- GameRead %>% 
+  html_elements("#GameInfo tr:nth-child(4) td") %>% 
+  html_text()
+
+Team_Away <- GameRead %>% 
+  html_elements(".\\+.border:nth-child(1)") %>% 
+  html_text()
+
+Team_Home <- GameRead %>% 
+  html_elements(".border+ .\\+.border") %>% 
+  html_text()
+
+Players_Away <- GameRead %>% 
+  html_elements(".tablewidth .tablewidth tr:nth-child(1) .border:nth-child(1) tr+ tr td~ td+ td") %>% 
+  html_text()
+
+Players_Home <- GameRead %>% 
+  html_elements(".tablewidth .tablewidth tr:nth-child(1) .border+ .border tr+ tr td~ td+ td") %>% 
+  html_text()
+  
+
+player_df_away <- data.frame(Game_Date, Team_Away, Team_Home, Team_Member = "Away",  Player = Players_Away)
+
+player_df_home <- data.frame(Game_Date, Team_Away, Team_Home, Team_Member = "Home",  Player = Players_Home)
+
+Player_df <- rbind(player_df_away, player_df_home)
+  
+#remove (C) (A)
+Player_df$Player <-gsub("\\s*\\([^\\)]+\\)","",as.character(Player_df$Player))
+
+Player_df$Season <- "2014 - 2015"
+
+Players_Total_20142015 <- rbind(Players_Total_20142015, Player_df)
+
+Sys.sleep(5)
+
+}
+```
+
+```{r}
+save(Players_Total_20142015, file = "Players_Total_20142015.RData")
+```
+
+
+```{r}
+
+
+Players_Total_20152016 <- data.frame()
+
+for (i in 1:1230) {
+  
+  gamenumber <- formatC(i, width = 4, format = "d", flag = "0")
+  
+  url <- paste("https://www.nhl.com/scores/htmlreports/20152016/RO02", gamenumber, ".HTM", sep = "")
+  
+  GameRead <- read_html(url)
+
+Game_Date <- GameRead %>% 
+  html_elements("#GameInfo tr:nth-child(4) td") %>% 
+  html_text()
+
+Team_Away <- GameRead %>% 
+  html_elements(".\\+.border:nth-child(1)") %>% 
+  html_text()
+
+Team_Home <- GameRead %>% 
+  html_elements(".border+ .\\+.border") %>% 
+  html_text()
+
+Players_Away <- GameRead %>% 
+  html_elements(".tablewidth .tablewidth tr:nth-child(1) .border:nth-child(1) tr+ tr td~ td+ td") %>% 
+  html_text()
+
+Players_Home <- GameRead %>% 
+  html_elements(".tablewidth .tablewidth tr:nth-child(1) .border+ .border tr+ tr td~ td+ td") %>% 
+  html_text()
+  
+
+player_df_away <- data.frame(Game_Date, Team_Away, Team_Home, Team_Member = "Away",  Player = Players_Away)
+
+player_df_home <- data.frame(Game_Date, Team_Away, Team_Home, Team_Member = "Home",  Player = Players_Home)
+
+Player_df <- rbind(player_df_away, player_df_home)
+  
+#remove (C) (A)
+Player_df$Player <-gsub("\\s*\\([^\\)]+\\)","",as.character(Player_df$Player))
+
+Player_df$Season <- "2015 - 2016"
+
+Players_Total_20152016 <- rbind(Players_Total_20152016, Player_df)
+
+Sys.sleep(5)
+
+}
+
+save(Players_Total_20152016, file = "Players_Total_20152016.RData")
+```
+
+```{r}
+
+
+Players_Total_20162017 <- data.frame()
+
+for (i in 1:1230) {
+  
+  gamenumber <- formatC(i, width = 4, format = "d", flag = "0")
+  
+  url <- paste("https://www.nhl.com/scores/htmlreports/20162017/RO02", gamenumber, ".HTM", sep = "")
+  
+  GameRead <- read_html(url)
+
+Game_Date <- GameRead %>% 
+  html_elements("#GameInfo tr:nth-child(4) td") %>% 
+  html_text()
+
+Team_Away <- GameRead %>% 
+  html_elements(".\\+.border:nth-child(1)") %>% 
+  html_text()
+
+Team_Home <- GameRead %>% 
+  html_elements(".border+ .\\+.border") %>% 
+  html_text()
+
+Players_Away <- GameRead %>% 
+  html_elements(".tablewidth .tablewidth tr:nth-child(1) .border:nth-child(1) tr+ tr td~ td+ td") %>% 
+  html_text()
+
+Players_Home <- GameRead %>% 
+  html_elements(".tablewidth .tablewidth tr:nth-child(1) .border+ .border tr+ tr td~ td+ td") %>% 
+  html_text()
+  
+
+player_df_away <- data.frame(Game_Date, Team_Away, Team_Home, Team_Member = "Away",  Player = Players_Away)
+
+player_df_home <- data.frame(Game_Date, Team_Away, Team_Home, Team_Member = "Home",  Player = Players_Home)
+
+Player_df <- rbind(player_df_away, player_df_home)
+  
+#remove (C) (A)
+Player_df$Player <-gsub("\\s*\\([^\\)]+\\)","",as.character(Player_df$Player))
+
+Player_df$Season <- "2016 - 2017"
+
+Players_Total_20162017 <- rbind(Players_Total_20162017, Player_df)
+
+Sys.sleep(5)
+
+}
+
+save(Players_Total_20162017, file = "Players_Total_20162017.RData")
+```
+
+```{r}
+
+
+Players_Total_20172018 <- data.frame()
+
+for (i in 1:1271) {
+  
+  gamenumber <- formatC(i, width = 4, format = "d", flag = "0")
+  
+  url <- paste("https://www.nhl.com/scores/htmlreports/20172018/RO02", gamenumber, ".HTM", sep = "")
+  
+  GameRead <- read_html(url)
+
+Game_Date <- GameRead %>% 
+  html_elements("#GameInfo tr:nth-child(4) td") %>% 
+  html_text()
+
+Team_Away <- GameRead %>% 
+  html_elements(".\\+.border:nth-child(1)") %>% 
+  html_text()
+
+Team_Home <- GameRead %>% 
+  html_elements(".border+ .\\+.border") %>% 
+  html_text()
+
+Players_Away <- GameRead %>% 
+  html_elements(".tablewidth .tablewidth tr:nth-child(1) .border:nth-child(1) tr+ tr td~ td+ td") %>% 
+  html_text()
+
+Players_Home <- GameRead %>% 
+  html_elements(".tablewidth .tablewidth tr:nth-child(1) .border+ .border tr+ tr td~ td+ td") %>% 
+  html_text()
+  
+
+player_df_away <- data.frame(Game_Date, Team_Away, Team_Home, Team_Member = "Away",  Player = Players_Away)
+
+player_df_home <- data.frame(Game_Date, Team_Away, Team_Home, Team_Member = "Home",  Player = Players_Home)
+
+Player_df <- rbind(player_df_away, player_df_home)
+  
+#remove (C) (A)
+Player_df$Player <-gsub("\\s*\\([^\\)]+\\)","",as.character(Player_df$Player))
+
+Player_df$Season <- "2017 - 2018"
+
+Players_Total_20172018 <- rbind(Players_Total_20172018, Player_df)
+
+Sys.sleep(5)
+
+}
+
+save(Players_Total_20172018, file = "Players_Total_20172018.RData")
+```
+
+```{r}
+
+
+Players_Total_20182019 <- data.frame()
+
+for (i in 1:1271) {
+  
+  gamenumber <- formatC(i, width = 4, format = "d", flag = "0")
+  
+  url <- paste("https://www.nhl.com/scores/htmlreports/20182019/RO02", gamenumber, ".HTM", sep = "")
+  
+  GameRead <- read_html(url)
+
+Game_Date <- GameRead %>% 
+  html_elements("#GameInfo tr:nth-child(4) td") %>% 
+  html_text()
+
+Team_Away <- GameRead %>% 
+  html_elements(".\\+.border:nth-child(1)") %>% 
+  html_text()
+
+Team_Home <- GameRead %>% 
+  html_elements(".border+ .\\+.border") %>% 
+  html_text()
+
+Players_Away <- GameRead %>% 
+  html_elements(".tablewidth .tablewidth tr:nth-child(1) .border:nth-child(1) tr+ tr td~ td+ td") %>% 
+  html_text()
+
+Players_Home <- GameRead %>% 
+  html_elements(".tablewidth .tablewidth tr:nth-child(1) .border+ .border tr+ tr td~ td+ td") %>% 
+  html_text()
+  
+
+player_df_away <- data.frame(Game_Date, Team_Away, Team_Home, Team_Member = "Away",  Player = Players_Away)
+
+player_df_home <- data.frame(Game_Date, Team_Away, Team_Home, Team_Member = "Home",  Player = Players_Home)
+
+Player_df <- rbind(player_df_away, player_df_home)
+  
+#remove (C) (A)
+Player_df$Player <-gsub("\\s*\\([^\\)]+\\)","",as.character(Player_df$Player))
+
+Player_df$Season <- "2018 - 2019"
+
+Players_Total_20182019 <- rbind(Players_Total_20182019, Player_df)
+
+Sys.sleep(5)
+
+}
+
+save(Players_Total_20182019, file = "Players_Total_20182019.RData")
+```
+
+```{r}
+
+
+Players_Total_20192020 <- data.frame()
+
+for (i in 1:1082) {
+  
+  gamenumber <- formatC(i, width = 4, format = "d", flag = "0")
+  
+  url <- paste("https://www.nhl.com/scores/htmlreports/20192020/RO02", gamenumber, ".HTM", sep = "")
+  
+  GameRead <- read_html(url)
+
+Game_Date <- GameRead %>% 
+  html_elements("#GameInfo tr:nth-child(4) td") %>% 
+  html_text()
+
+Team_Away <- GameRead %>% 
+  html_elements(".\\+.border:nth-child(1)") %>% 
+  html_text()
+
+Team_Home <- GameRead %>% 
+  html_elements(".border+ .\\+.border") %>% 
+  html_text()
+
+Players_Away <- GameRead %>% 
+  html_elements(".tablewidth .tablewidth tr:nth-child(1) .border:nth-child(1) tr+ tr td~ td+ td") %>% 
+  html_text()
+
+Players_Home <- GameRead %>% 
+  html_elements(".tablewidth .tablewidth tr:nth-child(1) .border+ .border tr+ tr td~ td+ td") %>% 
+  html_text()
+  
+
+player_df_away <- data.frame(Game_Date, Team_Away, Team_Home, Team_Member = "Away",  Player = Players_Away)
+
+player_df_home <- data.frame(Game_Date, Team_Away, Team_Home, Team_Member = "Home",  Player = Players_Home)
+
+Player_df <- rbind(player_df_away, player_df_home)
+  
+#remove (C) (A)
+Player_df$Player <-gsub("\\s*\\([^\\)]+\\)","",as.character(Player_df$Player))
+
+Player_df$Season <- "2019 - 2020"
+
+Players_Total_20192020 <- rbind(Players_Total_20192020, Player_df)
+
+Sys.sleep(3)
+
+}
+
+save(Players_Total_20192020, file = "Players_Total_20192020.RData")
+```
+
+```{r}
+
+
+Players_Total_20202021 <- data.frame()
+
+for (i in 1:868) {
+  
+  gamenumber <- formatC(i, width = 4, format = "d", flag = "0")
+  
+  url <- paste("https://www.nhl.com/scores/htmlreports/20202021/RO02", gamenumber, ".HTM", sep = "")
+  
+  GameRead <- read_html(url)
+
+Game_Date <- GameRead %>% 
+  html_elements("#GameInfo tr:nth-child(4) td") %>% 
+  html_text()
+
+Team_Away <- GameRead %>% 
+  html_elements(".\\+.border:nth-child(1)") %>% 
+  html_text()
+
+Team_Home <- GameRead %>% 
+  html_elements(".border+ .\\+.border") %>% 
+  html_text()
+
+Players_Away <- GameRead %>% 
+  html_elements(".tablewidth .tablewidth tr:nth-child(1) .border:nth-child(1) tr+ tr td~ td+ td") %>% 
+  html_text()
+
+Players_Home <- GameRead %>% 
+  html_elements(".tablewidth .tablewidth tr:nth-child(1) .border+ .border tr+ tr td~ td+ td") %>% 
+  html_text()
+  
+
+player_df_away <- data.frame(Game_Date, Team_Away, Team_Home, Team_Member = "Away",  Player = Players_Away)
+
+player_df_home <- data.frame(Game_Date, Team_Away, Team_Home, Team_Member = "Home",  Player = Players_Home)
+
+Player_df <- rbind(player_df_away, player_df_home)
+  
+#remove (C) (A)
+Player_df$Player <-gsub("\\s*\\([^\\)]+\\)","",as.character(Player_df$Player))
+
+Player_df$Season <- "2020 - 2021"
+
+Players_Total_20202021 <- rbind(Players_Total_20202021, Player_df)
+
+Sys.sleep(3)
+
+}
+
+save(Players_Total_20202021, file = "Players_Total_20202021.RData")
+```
+
+```{r}
+
+
+Players_Total_20212022 <- data.frame()
+
+for (i in 1:1312) {
+  
+  gamenumber <- formatC(i, width = 4, format = "d", flag = "0")
+  
+  url <- paste("https://www.nhl.com/scores/htmlreports/20212022/RO02", gamenumber, ".HTM", sep = "")
+  
+  GameRead <- read_html(url)
+
+Game_Date <- GameRead %>% 
+  html_elements("#GameInfo tr:nth-child(4) td") %>% 
+  html_text()
+
+Team_Away <- GameRead %>% 
+  html_elements(".\\+.border:nth-child(1)") %>% 
+  html_text()
+
+Team_Home <- GameRead %>% 
+  html_elements(".border+ .\\+.border") %>% 
+  html_text()
+
+Players_Away <- GameRead %>% 
+  html_elements(".tablewidth .tablewidth tr:nth-child(1) .border:nth-child(1) tr+ tr td~ td+ td") %>% 
+  html_text()
+
+Players_Home <- GameRead %>% 
+  html_elements(".tablewidth .tablewidth tr:nth-child(1) .border+ .border tr+ tr td~ td+ td") %>% 
+  html_text()
+  
+
+player_df_away <- data.frame(Game_Date, Team_Away, Team_Home, Team_Member = "Away",  Player = Players_Away)
+
+player_df_home <- data.frame(Game_Date, Team_Away, Team_Home, Team_Member = "Home",  Player = Players_Home)
+
+Player_df <- rbind(player_df_away, player_df_home)
+  
+#remove (C) (A)
+Player_df$Player <-gsub("\\s*\\([^\\)]+\\)","",as.character(Player_df$Player))
+
+Player_df$Season <- "2021 - 2022"
+
+Players_Total_20212022 <- rbind(Players_Total_20212022, Player_df)
+
+Sys.sleep(3)
+
+}
+
+save(Players_Total_20212022, file = "Players_Total_20212022.RData")
+```
+
+```{r}
+
+
+Players_Total_20222023 <- data.frame()
+
+for (i in 1:1312) {
+  
+  gamenumber <- formatC(i, width = 4, format = "d", flag = "0")
+  
+  url <- paste("https://www.nhl.com/scores/htmlreports/20222023/RO02", gamenumber, ".HTM", sep = "")
+  
+  GameRead <- read_html(url)
+
+Game_Date <- GameRead %>% 
+  html_elements("#GameInfo tr:nth-child(4) td") %>% 
+  html_text()
+
+Team_Away <- GameRead %>% 
+  html_elements(".\\+.border:nth-child(1)") %>% 
+  html_text()
+
+Team_Home <- GameRead %>% 
+  html_elements(".border+ .\\+.border") %>% 
+  html_text()
+
+Players_Away <- GameRead %>% 
+  html_elements(".tablewidth .tablewidth tr:nth-child(1) .border:nth-child(1) tr+ tr td~ td+ td") %>% 
+  html_text()
+
+Players_Home <- GameRead %>% 
+  html_elements(".tablewidth .tablewidth tr:nth-child(1) .border+ .border tr+ tr td~ td+ td") %>% 
+  html_text()
+  
+
+player_df_away <- data.frame(Game_Date, Team_Away, Team_Home, Team_Member = "Away",  Player = Players_Away)
+
+player_df_home <- data.frame(Game_Date, Team_Away, Team_Home, Team_Member = "Home",  Player = Players_Home)
+
+Player_df <- rbind(player_df_away, player_df_home)
+  
+#remove (C) (A)
+Player_df$Player <-gsub("\\s*\\([^\\)]+\\)","",as.character(Player_df$Player))
+
+Player_df$Season <- "2022 - 2023"
+
+Players_Total_20222023 <- rbind(Players_Total_20222023, Player_df)
+
+Sys.sleep(3)
+
+}
+
+save(Players_Total_20222023, file = "Players_Total_20222023.RData")
+```
+
+```{r}
+
+
+Players_Total_20232024 <- data.frame()
+
+for (i in 1:1312) {
+  
+  gamenumber <- formatC(i, width = 4, format = "d", flag = "0")
+  
+  url <- paste("https://www.nhl.com/scores/htmlreports/20232024/RO02", gamenumber, ".HTM", sep = "")
+  
+  GameRead <- read_html(url)
+
+Game_Date <- GameRead %>% 
+  html_elements("#GameInfo tr:nth-child(4) td") %>% 
+  html_text()
+
+Team_Away <- GameRead %>% 
+  html_elements(".\\+.border:nth-child(1)") %>% 
+  html_text()
+
+Team_Home <- GameRead %>% 
+  html_elements(".border+ .\\+.border") %>% 
+  html_text()
+
+Players_Away <- GameRead %>% 
+  html_elements(".tablewidth .tablewidth tr:nth-child(1) .border:nth-child(1) tr+ tr td~ td+ td") %>% 
+  html_text()
+
+Players_Home <- GameRead %>% 
+  html_elements(".tablewidth .tablewidth tr:nth-child(1) .border+ .border tr+ tr td~ td+ td") %>% 
+  html_text()
+  
+
+player_df_away <- data.frame(Game_Date, Team_Away, Team_Home, Team_Member = "Away",  Player = Players_Away)
+
+player_df_home <- data.frame(Game_Date, Team_Away, Team_Home, Team_Member = "Home",  Player = Players_Home)
+
+Player_df <- rbind(player_df_away, player_df_home)
+  
+#remove (C) (A)
+Player_df$Player <-gsub("\\s*\\([^\\)]+\\)","",as.character(Player_df$Player))
+
+Player_df$Season <- "2023 - 2024"
+
+Players_Total_20232024 <- rbind(Players_Total_20232024, Player_df)
+
+Sys.sleep(3)
+
+}
+
+save(Players_Total_20232024, file = "Players_Total_20232024.RData")
+```
+
+
+```{r}
+load("Players_Total_20142015.RData")
+load("Players_Total_20152016.RData")
+load("Players_Total_20162017.RData")
+load("Players_Total_20172018.RData")
+load("Players_Total_20182019.RData")
+load("Players_Total_20192020.RData")
+load("Players_Total_20202021.RData")
+load("Players_Total_20212022.RData")
+load("Players_Total_20222023.RData")
+load("Players_Total_20232024.RData")
+
+TotalPlayers <- rbind(Players_Total_20142015
+      ,Players_Total_20152016
+      ,Players_Total_20162017
+      ,Players_Total_20172018
+      ,Players_Total_20182019
+      ,Players_Total_20192020
+      ,Players_Total_20202021
+      ,Players_Total_20212022
+      ,Players_Total_20222023
+      ,Players_Total_20232024
+      )
+```
+
+
+```{r}
+n_distinct(TotalPlayers$Player)
+```
+```{r}
+list_of_players <- unique(TotalPlayers$Player)
+
+Lower_Players <- str_to_lower(list_of_players)
+
+Lower_Punc_Players <- str_replace_all(Lower_Players, "[[:punct:]]", "")
+
+URLPlayers <- str_replace_all(Lower_Punc_Players, " ", "-")
+
+PlayerDF <-  data.frame(list_of_players, URLPlayers)
+```
+
+```{r}
+#https://stackoverflow.com/questions/75032948/error-web-scraping-with-rvest-error-in-open-connectionx-rb-http-error-4
+library(polite)
+
+page <- url %>% 
+  bow() %>% 
+  scrape()
+
+Contracts <- page %>% 
+  html_elements("#career_stats") %>% 
+  html_table()
+```
+
+
+```{r}
+Players_Salaries <- data.frame()
+
+ErrorPlayers <- data.frame()
+
+#i <- 2
+
+for (i in 1:nrow(PlayerDF)) {
+  
+ tryCatch(
+   {
+     
+  
+  
+  #maybe look into polite package if there are issues
+  
+  url <- paste("https://puckpedia.com/player/", PlayerDF$URLPlayers[i], sep = "")
+  
+page <- url %>% 
+  bow() %>% 
+  scrape()
+
+Contracts <- page %>% 
+  html_elements("#career_stats") %>% 
+  html_table()
+
+#Contracts[[1]]$Season
+#Contracts[[1]]$`Cap Hit`
+
+playercontracts <- data.frame(Player = PlayerDF$list_of_players[i], PlayerUrl = PlayerDF$URLPlayers[i],  Season = Contracts[[1]]$Season, CapHit = Contracts[[1]]$`Cap Hit`)
+
+PlayerContracts <- unique(playercontracts)
+
+PlayerContracts <- head(PlayerContracts,-1)
+
+PlayerContracts$SeasonNumber <- as.numeric(str_sub(PlayerContracts$Season, end=-4))
+
+PlayerContracts <- PlayerContracts %>% filter(SeasonNumber >= 2014)
+
+PlayerContracts$CapHitNumber <- as.numeric(gsub('[$,]', '', word(PlayerContracts$CapHit, 1)))
+
+
+#catch errors of $0 contracts
+if (min(PlayerContracts$CapHitNumber) == 0) {
+  
+
+  columns= c("Player", "PlayerUrl", "Error") 
+ 
+  errorrecord = data.frame(matrix(nrow = 1, ncol = length(columns))) 
+ 
+  colnames(errorrecord) = columns
+  
+  errorrecord$Player <- PlayerDF$list_of_players[i]
+  
+  errorrecord$PlayerUrl <- max(PlayerContracts$Player)
+  
+  errorrecord$Error <- "$0 Contract"
+  
+  ErrorPlayers <- rbind(ErrorPlayers, errorrecord)
+  
+}
+
+Players_Salaries <- rbind(Players_Salaries, PlayerContracts)
+
+
+Sys.sleep(2)
+
+   },
+error = function(e) {
+  
+  columns= c("Player", "PlayerUrl", "Error") 
+ 
+  errorrecord = data.frame(matrix(nrow = 1, ncol = length(columns))) 
+ 
+  colnames(errorrecord) = columns
+  
+  errorrecord$Player <- PlayerDF$list_of_players[i]
+  
+  errorrecord$PlayerUrl <- max(PlayerContracts$Player)
+  
+  errorrecord$Error <- "Scrape Error"
+  
+  ErrorPlayers <- rbind(ErrorPlayers, errorrecord)
+  
+  Sys.sleep(2)
+}
+ )
+
+}
+
+
+save(Players_Salaries, file = "Players_Salaries.RData")
+save(ErrorPlayers, file = "ErrorPlayers.RData")
+```
+
+
+
+```{r}
+
+
+PlayersToGet <- PlayerDF %>%  filter(!list_of_players %in% Players_Salaries$Player)
+
+```
+
+
+```{r}
+ManualContracts <- data.frame()
+```
+
+```{r}
+load("Players_Total_20142015.RData")
+load("Players_Total_20152016.RData")
+load("Players_Total_20162017.RData")
+load("Players_Total_20172018.RData")
+load("Players_Total_20182019.RData")
+load("Players_Total_20192020.RData")
+load("Players_Total_20202021.RData")
+load("Players_Total_20212022.RData")
+load("Players_Total_20222023.RData")
+load("Players_Total_20232024.RData")
+
+TotalPlayers <- rbind(Players_Total_20142015
+      ,Players_Total_20152016
+      ,Players_Total_20162017
+      ,Players_Total_20172018
+      ,Players_Total_20182019
+      ,Players_Total_20192020
+      ,Players_Total_20202021
+      ,Players_Total_20212022
+      ,Players_Total_20222023
+      ,Players_Total_20232024
+      )
+```
+
+
+```{r}
+load("ManualContracts.RData")
+load("Players_Salaries.RData")
+load("ErrorPlayers.RData")
+```
+
+```{r}
+list_of_players <- unique(TotalPlayers$Player)
+
+Lower_Players <- str_to_lower(list_of_players)
+
+Lower_Punc_Players <- str_replace_all(Lower_Players, "[[:punct:]]", "")
+
+URLPlayers <- str_replace_all(Lower_Punc_Players, " ", "-")
+
+PlayerDF <-  data.frame(list_of_players, URLPlayers)
+
+PlayersToGet <- PlayerDF %>%  filter(!list_of_players %in% Players_Salaries$Player)
+```
+
+
+```{r}
+nrow(PlayersToGet)
+```
+
+
+Structure for manual contract collection (using spotrac)
+```{r}
+PlayerName <- PlayersToGet$list_of_players[451]
+
+PlayerName
+
+columns= c("Player", "SeasonNumber", "CapHitNumber") 
+ 
+playerrecord = data.frame(matrix(nrow = 17, ncol = length(columns))) 
+ 
+colnames(playerrecord) = columns
+ 
+playerrecord$Player <- PlayerName 
+
+playerrecord$SeasonNumber <- seq(2014,2030)
+
+playerrecord$CapHitNumber <- c(
+   0 #2014
+  ,0 #2015
+  ,0 #2016
+  ,0 #2017
+  ,0 #2018
+  ,0 #2019
+  ,0 #2020
+  ,0 #2021
+  ,0 #2022
+  ,910000 #2023
+  ,910000 #2024
+            
+  ,0 #2025
+  ,0 #2026
+  ,0 #2027
+  ,0 #2028
+  ,0 #2029
+  ,0 #2030
+)
+  
+playerrecord <- playerrecord %>% filter(CapHitNumber != 0)
+
+ManualContracts <- rbind(ManualContracts, playerrecord)
+
+#Ryan Lowe - Emergency Backup Goalie
+#Robb Tallas - Emergency Backup Goalie
+#Nathan Schoenfeld - E Goalie
+#MATTHEW HEWITT - E Goalie
+#ERIC SEMBORSKI - E Goalie
+#JORGE ALVES - E Goalie
+#GAVIN MCHALE - E Goalie
+#ALEXANDER BISHOP - E Goalie
+#KYLE KONIN - E Goalie
+#DUSTIN SMITH - E Goalie
+#KYLE SHAPIRO - E Goalie
+#RYLAN TOTH - E Goalie
+#THOMAS HODGES - E Goalie
+#MATTHEW BERLIN - E Goalie
+#ZACHARY ANDREWS - E Goalie
+#JETT ALEXANDER - E Goalie
+#NICK CHENARD - E Goalie
+#MATT ONUSKA - E Goalie
+#REID COOPER - E Goalie
+#SAMUEL RICHARD - E Goalie
+#DUSTIN NICKEL - E Goalie
+#JOSEPH O'BRIEN - E Goalie
+```
+
+```{r}
+save(ManualContracts, file = "ManualContracts.RData")
+```
+
+
+```{r}
+#$0 Contract fixing
+
+BlankContractsToCorrect <- Players_Salaries %>% filter(CapHitNumber == 0)
+
+
+BlankContractsToCorrect <- BlankContractsToCorrect %>% mutate(CorrectedCap = NA)
+
+
+#check a row
+BlankContractsToCorrect[84,]
+
+#fix a row
+BlankContractsToCorrect$CorrectedCap[83] <- 700000
+
+
+
+#remove a bad row
+BlankContractsToCorrect <- BlankContractsToCorrect %>% filter(!row_number() == 84)
+```
+
+```{r}
+save(BlankContractsToCorrect, file = "BlankContractsToCorrect.RData")
+```
+
+
+```{r}
+#Isolate the 0's we actually need to correct.
+CorrectedZeroContracts <- left_join(TotalPlayers %>% mutate(SeasonNumber = as.numeric( str_extract(Season, "^.{4}"))), Players_Salaries, by = c("Player" = "Player", "SeasonNumber" = "SeasonNumber")) %>% filter(CapHitNumber == 0) %>% group_by(Player, Season.x) %>% summarize(games = n()) %>% rename(Season = Season.x)
+```
+```{r}
+CorrectedZeroContracts <- CorrectedZeroContracts %>% mutate(CapHitNumber = NA)
+
+i <- 171
+
+CorrectedZeroContracts[i,1:2]
+
+CorrectedZeroContracts$CapHitNumber[i] <- 2725000
+
+#capwages.com seems to be a great resource (why did i find it just now...) - still not perfect,
+
+#David Ayres - E Goalie (the famous one who won)
+
+#JUSTIN KOWALKOSKI - E Goalie
+
+#SCOTT FOSTER	- E Goalie
+```
+
+```{r}
+save(CorrectedZeroContracts, file = "CorrectedZeroContracts.RData")
+
+load("CorrectedZeroContracts.RData")
+```
+
+
+```{r}
+load("ManualContracts.RData")
+```
+
+
+```{r}
+TotalContracts <- Players_Salaries %>% filter(!CapHitNumber == 0) %>% select(Player, SeasonNumber, CapHitNumber)
+
+
+TotalContracts <- rbind(TotalContracts,
+      #The $0 contracts thqt were corrected
+      CorrectedZeroContracts %>% mutate(SeasonNumber = as.numeric(str_extract(Season, "^.{4}"))) %>% 
+  select(Player, SeasonNumber, CapHitNumber)
+  
+)
+
+TotalContracts <- rbind(TotalContracts, ManualContracts)
+
+```
+
+
+```{r}
+#Sebastion Aho 1 (The one that didn't play for CAR)
+
+#TotalContracts %>% filter(Player == "SEBASTIAN AHO") #this is the CAR one
+
+columns= c("Player", "SeasonNumber", "CapHitNumber") 
+ 
+playerrecord = data.frame(matrix(nrow = 17, ncol = length(columns))) 
+ 
+colnames(playerrecord) = columns
+ 
+playerrecord$Player <- "SEBASTIAN AHO 1" 
+
+playerrecord$SeasonNumber <- seq(2014,2030)
+
+playerrecord$CapHitNumber <- c(
+   0 #2014
+  ,0 #2015
+  ,0 #2016
+  ,770000 #2017
+  ,770000 #2018
+  ,770000 #2019
+  ,725000 #2020
+  ,725000 #2021
+  ,825000 #2022
+  ,825000 #2023
+  ,775000 #2024
+            
+  ,775000 #2025
+  ,0 #2026
+  ,0 #2027
+  ,0 #2028
+  ,0 #2029
+  ,0 #2030
+)
+  
+playerrecord <- playerrecord %>% filter(CapHitNumber != 0)
+
+TotalContracts <- rbind(TotalContracts, playerrecord)
+```
+
+
+```{r}
+save(TotalContracts, file = "TotalContracts.RData")
+```
+
+```{r}
+TotalPlayers <- TotalPlayers %>% mutate(SeasonNumber = as.numeric(str_extract(Season, "^.{4}")))
+
+TotalPlayers <- TotalPlayers %>% mutate(Player = case_when(
+  `Player` == "SEBASTIAN AHO" & Team_Member == "Away" & Team_Away != "CAROLINA HURRICANES" ~ "SEBASTIAN AHO 1",
+  `Player` == "SEBASTIAN AHO" & Team_Member == "Home" & Team_Home != "CAROLINA HURRICANES" ~ "SEBASTIAN AHO 1",
+  TRUE ~ `Player`
+))
+```
+
+```{r}
+TotalPlayersAndContracts <- left_join(TotalPlayers, TotalContracts, by = c("Player" = "Player", "SeasonNumber" = "SeasonNumber"))
+```
+
+```{r}
+#Some issues to fix
+TotalPlayersAndContracts %>% filter(is.na(CapHitNumber))
+
+TotalContracts %>% filter(is.na(SeasonNumber))
+
+TotalContracts %>% filter(Player == "BRANDON DEFAZIO")
+
+TotalContracts %>% filter(Player == "JAKUB NAKLADAL")
+```
+```{r}
+NaSeasonContracts <- TotalContracts %>% filter(is.na(SeasonNumber))
+
+NaSeasonContracts$SeasonNumber <- c(2014, 2015, 2016, 2021,2022,2023,2024,2025)
+
+TotalContracts <- TotalContracts %>% filter(!is.na(SeasonNumber))
+
+TotalContracts <- rbind(TotalContracts, NaSeasonContracts)
+```
+
+```{r}
+TotalPlayersAndContracts <- left_join(TotalPlayers, TotalContracts, by = c("Player" = "Player", "SeasonNumber" = "SeasonNumber"))
+
+MissedContracts <- TotalPlayersAndContracts %>% filter(is.na(CapHitNumber)) %>% group_by(Player, SeasonNumber) %>% summarise(games = n())
+
+MissedContracts$CapHitNumber <- NA
+
+i <- 14
+
+MissedContracts[i,]
+
+MissedContracts$CapHitNumber[i] <- 3200000
+
+MissedContracts <- MissedContracts %>% select(-games)
+```
+
+```{r}
+TotalContracts <- rbind(TotalContracts, MissedContracts)
+```
+
+```{r}
+TotalContracts %>% group_by(Player, SeasonNumber) %>% summarise(times = n()) %>% filter(times > 1)
+
+TotalContracts %>% filter(Player == "MAGNUS HELLBERG" & SeasonNumber == 2015)
+
+
+TotalContracts <- TotalContracts %>% filter(!(Player == "MAGNUS HELLBERG" & SeasonNumber == 2015 & is.na(CapHitNumber)))
+```
+
+
+```{r}
+TotalPlayersAndContracts <- left_join(TotalPlayers, TotalContracts, by = c("Player" = "Player", "SeasonNumber" = "SeasonNumber"))
+```
+
+```{r}
+save(TotalContracts, file = "TotalContracts.RData")
+save(TotalPlayers, file = "TotalPlayers.RData")
+```
+
+```{r}
+library(parsedate)
+as.Date(parse_date(TotalPlayersAndContracts$Game_Date[1]))
+
+TotalPlayersAndContracts <- TotalPlayersAndContracts %>% mutate(Date = as.Date(parse_date(Game_Date)))
+
+TotalPlayersAndContracts <- TotalPlayersAndContracts %>% mutate(GameKeyBeta = str_to_title(paste(Team_Away, "@", Team_Home, " ", Date, sep = " ")))
+
+ContractDifferences <- TotalPlayersAndContracts %>% group_by(GameKeyBeta) %>% summarise(
+  AwayContracts = sum(case_when(Team_Member == "Away" ~ CapHitNumber
+                            ,Team_Member == "Home" ~ 0))
+  ,HomeContracts = sum(case_when(Team_Member == "Home" ~ CapHitNumber
+                            ,Team_Member == "Away" ~ 0))) %>% 
+    mutate(ContractDifference = HomeContracts - AwayContracts
+           ,ContractDifference_ABS = abs(ContractDifference))
+
+```
+
+```{r}
+save(ContractDifferences, file = "ContractDifferences.RData")
+```
+
+
+
+```{r}
+#Make temp directory to get rid of annoying error
+tempdir()
+
+dir.create(tempdir())
+```
+
+
+
+
